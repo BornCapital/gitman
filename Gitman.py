@@ -1,19 +1,18 @@
 #!/usr/bin/env python
 
 import git
+import posix1e as posix_acl
+
+import collections
+import grp
 import os
-import socket
-import sys
+import pwd
 import re
 import shutil
-import grp
-import pwd
+import socket
 import stat
-import collections
-import posix1e as posix_acl
-import errno
+import sys
 import tempfile
-import subprocess
 
 
 ## Taken from http://code.google.com/p/waf/source/browse/waflib/Node.py
@@ -172,33 +171,26 @@ def parse_config(line, config):
   line = short_machine.sub(config['short_host'], line)
   return line
 
-def check_file_perms(file, user, group, mode, xattrs):
+def check_file_perms(file, user, group, mode, xattrs, **kwargs):
   if user == None and group == None and mode == None and xattrs == None:
     return True
-  else:
-    try:
-      stat_info = os.stat(file)
-    except OSError as e:
-      if e.errno == errno.ENOENT:
-        # file doesn't exist
-        return False
-      raise
-    uid = stat_info.st_uid
-    gid = stat_info.st_gid
-    ouser = pwd.getpwuid(uid)[0]
-    ogroup = grp.getgrgid(gid)[0] 
-    omode = ('%o' % stat.S_IMODE(stat_info.st_mode)).zfill(4)
-    oxattrs = posix_acl.ACL(file=file)
-    return user == ouser and group == ogroup and mode == omode and xattrs == oxattrs
+  elif not os.path.isfile(file):
+    return False
+
+  stat_info = os.stat(file)
+  uid = stat_info.st_uid
+  gid = stat_info.st_gid
+  ouser = pwd.getpwuid(uid)[0]
+  ogroup = grp.getgrgid(gid)[0] 
+  omode = ('%o' % stat.S_IMODE(stat_info.st_mode)).zfill(4)
+  oxattrs = posix_acl.ACL(file=file)
+  return user == ouser and group == ogroup and mode == omode and xattrs == oxattrs
 
 def get_file_perms(file):
-  try:
-    stat_info = os.stat(file)
-  except OSError as e:
-    if e.errno == errno.ENOENT:
-      # file doesn't exist
-      return '-.-.-.-'
-    raise
+  if not os.path.isfile(file):
+    return False
+
+  stat_info = os.stat(file)
   uid = stat_info.st_uid
   gid = stat_info.st_gid
   user = pwd.getpwuid(uid)[0]
@@ -212,7 +204,7 @@ def get_file_perms_string(args):
     args['user'],
     args['group'],
     args['mode'],
-    args['extended_attrs'].to_any_text(separator=',', options=posix_acl.TEXT_ABBREVIATE))
+    args['xattrs'].to_any_text(separator=',', options=posix_acl.TEXT_ABBREVIATE))
 
 def createacl(mode, xattrstr):
   acl = posix_acl.ACL(mode=mode)
@@ -352,7 +344,7 @@ class GitMan:
               pattern = pattern[1:]
             files = ant_glob(start_dir=root, incl=pattern.strip(), dir=True)
             for file in files:
-              include_files.append([file, dict(user=user, group=group, mode=mode, root=root, extended_attrs=xattrs)])
+              include_files.append([file, dict(user=user, group=group, mode=mode, root=root, xattrs=xattrs)])
           elif cmd == 'exclude':
             exclude_files.extend(ant_glob(start_dir=root, incl=rest.strip(), dir=True))
           else:
@@ -447,10 +439,10 @@ class GitMan:
     #Find files that will be deleted, only if they are unchanged
     for file, sys_file, orig_args in self.deleted_files():
       if not os.path.exists(file):
-        verbose('DELETED (locally and in new config): %s' % file)
+        verbose('DELETED: %s (locally and in new config)' % file)
       else:
         if self.repo.git.hash_object(file) != orig_args['hash']:
-          holdup('DELETED (locally modified): %s' % file)
+          holdup('DELETED: %s (locally modified)' % file)
         else:
           verbose('DELETED: %s' % file)
 
@@ -458,33 +450,37 @@ class GitMan:
     for file, sys_file, new_args in self.added_files():
       if os.path.exists(file):
         if self.repo.git.hash_object(file) == new_args['hash']:
-          if not check_file_perms(file, new_args['user'], new_args['group'], new_args['mode'], new_args['extended_attrs']):
-            holdup('ADDED (exists locally, no content changes) has permissions have not been changed locally from %s (locally) to %s' %  (get_file_perms(file), get_file_perms_string(new_args)))
+          if not check_file_perms(file, **new_args):
+            holdup('ADDED: %s\n  PERMISSIONS INCORRECT: %s (locally) -> %s' %
+                   (file, get_file_perms(file), get_file_perms_string(new_args)))
           else:
-            verbose('ADDED (already exists locally, no changes): %s' % file)
+            verbose('ADDED: %s (already exists locally, no changes)' % file)
         else:
-          holdup('ADDED (exists but has diffrences locally): %s' % file)
+          holdup('ADDED: %s (exists but has diffrences locally)' % file)
       else:
         verbose('ADDED: %s' % file)
 
     #Find files that will be update
     for file, sys_file, orig_args, new_args in self.modified_files():
-      if new_args['user'] != orig_args['user'] or new_args['group'] != orig_args['group'] or new_args['mode'] != orig_args['mode']:
-        holdup('Permissions on file %s change from %s.%s.%s to %s.%s.%s' % (file, 
-          orig_args['user'], orig_args['group'], orig_args['mode'],
-          new_args['user'], new_args['group'], new_args['mode']))
-      if not check_file_perms(file, orig_args['user'], orig_args['group'], orig_args['mode'], orig_args['extended_attrs']):
-        if not check_file_perms(file, new_args['user'], new_args['group'], new_args['mode'], new_args['extended_attrs']):
-          verbose("User permissions changed for file %s (locally) from %s to %s (the file contents match what's in the repo, the permissions do not)" %  (file, get_file_perms_string(new_args), get_file_perms(file)))
+      if new_args['user'] != orig_args['user'] or \
+         new_args['group'] != orig_args['group'] or \
+         new_args['mode'] != orig_args['mode']:
+        holdup('PERMISSIONS: %s from %s -> %s' %
+               (file, get_file_perms_string(orig_args), get_file_perms_string(new_args)))
+      if not check_file_perms(file, **orig_args):
+        if not check_file_perms(file, **new_args):
+          verbose('PERMISSIONS: %s from %s -> %s' %
+                  (file, get_file_perms(file), get_file_perms_string(new_args)))
         else:
-          holdup('User permissions changed for file %s (locally) from %s to %s' %  (file, get_file_perms_string(orig_args), get_file_perms(file)))
+          holdup('PERMISSIONS: %s (locally changed) from %s -> %s' %
+                 (file, get_file_perms_string(orig_args), get_file_perms(file)))
       if not os.path.exists(file):
-        holdup('File does not exist that should: %s' % file)
+        holdup('MISSING FILE: %s' % file)
       elif self.repo.git.hash_object(file) != orig_args['hash']:
         if self.repo.git.hash_object(file) != new_args['hash']:
-          holdup('Locally modified: %s' % file)
+          holdup('LOCALLY MODIFIED: %s' % file)
         else:
-          verbose('Matches latest source entry (but not deployed version) %s' % file)
+          verbose('INCORRECT VERSION: %s' % file)
       # check current perms
       if new_args['hash'] != orig_args['hash']:
         verbose('MODIFIED: %s' % file)
@@ -540,8 +536,8 @@ class GitMan:
       os.chown(file, uid, gid)
     elif args['group']:
       os.chgrp(file, args['group'])
-    if args['extended_attrs']:
-      args['extended_attrs'].applyto(file)
+    if args['xattrs']:
+      args['xattrs'].applyto(file)
 
   def deploy(self, force, backup):
 #Delete files
@@ -643,10 +639,9 @@ class GitMan:
 
 
 def main():
-  import pwd
-  import posix
+  import ansi
   import optparse
-  import sys
+  import posix
 
   if 'HOME' not in os.environ or os.environ['HOME'] == '' or os.environ['HOME'] == '/':
     os.environ['HOME'] = pwd.getpwuid(posix.getuid())[7]
@@ -666,18 +661,18 @@ def main():
   verbose = options.verbose
   gitman = GitMan(options.base_path)
   if verbose:
-    print 'Deployed version %s' % gitman.deployed_version()
-    print 'Newest version %s' % gitman.latest_version()
-    print '%d revisions between deployed and latest' % gitman.undeployed_revisions()
-    print 'New files to deploy: %s' % gitman.new_files
+    ansi.writeout('Deployed version: %s' % gitman.deployed_version())
+    ansi.writeout('Newest version: %s' % gitman.latest_version())
+    ansi.writeout('  %d revisions between deployed and latest' %
+                  gitman.undeployed_revisions())
+    ansi.writeout('New files to deploy:\n  %s' % '\n  '.join(sorted(gitman.new_files.keys())))
   holdups, verbose_info = gitman.show_deployment()
   if verbose:
-    print '\n'.join(verbose_info)
-    print
+    ansi.writeout('%s\n' % '\n'.join(verbose_info))
   if len(holdups) > 0 and not options.force:
-    print 'Force deployment needed:'
-    print '\n'.join(holdups)
-    sys.exit()
+    ansi.writeout('${BRIGHT_YELLOW}Force deployment needed:${RESET}')
+    ansi.writeout('${BRIGHT_RED}%s${RESET}' % '\n'.join(holdups))
+    sys.exit('Deployment skipped due to holdups...')
 
   if options.deploy:
     gitman.deploy(backup=options.backup, force=options.force)
