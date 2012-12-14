@@ -184,7 +184,7 @@ def check_file_perms(file, user, group, mode, xattrs, **kwargs):
   ogroup = grp.getgrgid(gid)[0] 
   omode = ('%o' % stat.S_IMODE(stat_info.st_mode)).zfill(4)
   oxattrs = posix_acl.ACL(file=file)
-  return user == ouser and group == ogroup and mode == omode and xattrs == oxattrs
+  return user == ouser and group == ogroup and mode == omode and (xattrs is None or xattrs == oxattrs)
 
 def get_file_perms(file):
   if not os.path.isfile(file):
@@ -200,11 +200,16 @@ def get_file_perms(file):
   return '%s.%s.%s.%s' % (user, group, mode, xattrs.to_any_text(separator=',', options=posix_acl.TEXT_ABBREVIATE))
 
 def get_file_perms_string(args):
+  if args['xattrs'] is None:
+    xattrs = createacl(int(args['mode'], 8), '')
+  else:
+    xattrs = args['xattrs']
+
   return '%s.%s.%s.%s' % (
     args['user'],
     args['group'],
     args['mode'],
-    args['xattrs'].to_any_text(separator=',', options=posix_acl.TEXT_ABBREVIATE))
+    xattrs.to_any_text(separator=',', options=posix_acl.TEXT_ABBREVIATE))
 
 def createacl(mode, xattrstr):
   acl = posix_acl.ACL(mode=mode)
@@ -273,6 +278,7 @@ class GitMan:
       self.original_files, foo, self.original_crontabs = self.load_files(original_config)
     else:
       self.original_files = []
+      self.original_crontabs = {}
     self.switch_to_head_and_update()
     new_config = self.load_config()
     self.config = new_config
