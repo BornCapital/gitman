@@ -14,6 +14,7 @@ bindir = os.path.join(sys.prefix, 'bin')
 setup(name='gitman',
       version='0.9',
       description='Gitman',
-      py_modules=['Gitman', 'ansi',],
+      packages=['Gitman'],
+      py_modules=['ansi',],
       data_files=[(bindir, ['gitman'])])
 
