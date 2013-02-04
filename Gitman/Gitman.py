@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
+import fs
+
 import git
 
 import collections
 import os
 import pwd
 import re
-import shutil
 import socket
 import sys
 import tempfile
@@ -488,19 +489,15 @@ class GitMan:
 
 #Add files
     for file, sys_file, new_args in self.added_files():
-      if os.path.exists(file) and backup:
-        shutil.move(file, '%s.gitman' % file)
       dir = os.path.dirname(file)
       if not os.path.isdir(dir):
         os.makedirs(dir)
-      shutil.copy(sys_file, file)
+      fs.copy(sys_file, file, backup)
       new_args['acl'].applyto(file)
 
 #Update files
     for file, sys_file, orig_args, new_args in self.modified_files():
-      if os.path.exists(file) and backup:
-        shutil.move(file, '%s.gitman' % file)
-      shutil.copy(sys_file, file)
+      fs.copy(sys_file, file, backup)
       new_args['acl'].applyto(file)
 
     for crontab in self.deleted_crontabs():
