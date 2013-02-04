@@ -589,7 +589,7 @@ def main():
   parser.add_option('--force', help='force apply changes', action='store_true')
   parser.add_option('--deploy', help='deploy changes', action='store_true')
   parser.add_option('-d', '--base-path', help='base path')
-  parser.add_option('-b', '--backup', help='backup files')
+  parser.add_option('-b', '--backup', action='store_true', help='backup files')
   parser.add_option('--noacl', action='store_true', help='Disable ACL support')
 
   (options, args) = parser.parse_args()
