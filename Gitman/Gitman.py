@@ -9,6 +9,7 @@ import os
 import pwd
 import re
 import socket
+import subprocess
 import sys
 import tempfile
 
@@ -200,11 +201,22 @@ class ConcatCrontabs:
     
 
 class GitMan:
-  def __init__(self, path, deploy_file='.git/gitman_deploy'):
+  def __init__(self, path, origin=None, deploy_file='.git/gitman_deploy'):
     self.path = path
     self.deploy_file = deploy_file
 
-    self.repo = git.Repo(path)
+    if os.path.exists(path):
+      try:
+        self.repo = git.Repo(path)
+        self.repo.git.log('--pretty=tformat:%H', '-n', '1') # causes exception if not a valid repo
+      except:
+        raise RuntimeError('Not a git repo: %s' % path)
+
+      if origin and origin != self.repo.git.config('--get', 'remote.origin.url'):
+        raise RuntimeError('Git repo is not a clone of the desired origin')
+    else:
+      self.repo = git.Repo.clone_from(origin, path)
+
     version = self.deployed_version()
     self.check_is_clean()
     if version:
@@ -588,6 +600,7 @@ def main():
   parser.add_option('-d', '--base-path', help='base path')
   parser.add_option('-b', '--backup', action='store_true', help='backup files')
   parser.add_option('--noacl', action='store_true', help='Disable ACL support')
+  parser.add_option('--origin', help='URL for Git Repository origin')
 
   (options, args) = parser.parse_args()
 
@@ -610,7 +623,7 @@ def main():
   if options.force and not options.deploy:
     parser.error('Cannot force without deployment')
   verbose = options.verbose
-  gitman = GitMan(options.base_path)
+  gitman = GitMan(options.base_path, options.origin)
   if verbose:
     ansi.writeout('Deployed version: %s' % gitman.deployed_version())
     ansi.writeout('Newest version: %s' % gitman.latest_version())
