@@ -201,9 +201,9 @@ class ConcatCrontabs:
     
 
 class GitMan:
-  def __init__(self, path, origin=None, deploy_file='.git/gitman_deploy'):
+  def __init__(self, path, origin=None, branch='master', deploy_file='.git/gitman_deploy'):
     self.path = path
-    self.deploy_file = deploy_file
+    self.deploy_file = deploy_file + '.' + branch
 
     if os.path.exists(path):
       try:
@@ -219,6 +219,7 @@ class GitMan:
 
     version = self.deployed_version()
     self.check_is_clean()
+    
     if version:
       self.switch_to(version)
       original_config = self.load_config()
@@ -226,7 +227,7 @@ class GitMan:
     else:
       self.original_files = []
       self.original_crontabs = {}
-    self.switch_to_head_and_update()
+    self.switch_to_head_and_update(branch)
     new_config = self.load_config()
     self.config = new_config
     self.new_files, foo, self.new_crontabs = self.load_files(new_config)
@@ -540,9 +541,10 @@ class GitMan:
   def switch_to(self, version):
     self.repo.git.reset('--hard', version)
 
-  def switch_to_head_and_update(self):
+  def switch_to_head_and_update(self, branch='master'):
     self.repo.git.fetch()
-    branch = self.repo.active_branch.tracking_branch()
+    if branch == 'master':
+      branch = self.repo.active_branch.tracking_branch()
     self.switch_to(branch)
 
   def deployed_version(self):
@@ -601,6 +603,7 @@ def main():
   parser.add_option('-b', '--backup', action='store_true', help='backup files')
   parser.add_option('--noacl', action='store_true', help='Disable ACL support')
   parser.add_option('--origin', help='URL for Git Repository origin')
+  parser.add_option('--branch', default='master', help='default: master')
 
   (options, args) = parser.parse_args()
 
@@ -623,7 +626,7 @@ def main():
   if options.force and not options.deploy:
     parser.error('Cannot force without deployment')
   verbose = options.verbose
-  gitman = GitMan(options.base_path, options.origin)
+  gitman = GitMan(options.base_path, options.origin, options.branch)
   if verbose:
     ansi.writeout('Deployed version: %s' % gitman.deployed_version())
     ansi.writeout('Newest version: %s' % gitman.latest_version())
