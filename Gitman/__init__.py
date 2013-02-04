@@ -1,2 +1,2 @@
-from Gitman import *
+from Gitman import main
 

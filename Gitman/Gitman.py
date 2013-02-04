@@ -1,16 +1,13 @@
 #!/usr/bin/env python
 
 import git
-import posix1e as posix_acl
 
 import collections
-import grp
 import os
 import pwd
 import re
 import shutil
 import socket
-import stat
 import sys
 import tempfile
 
@@ -171,69 +168,6 @@ def parse_config(line, config):
   line = short_machine.sub(config['short_host'], line)
   return line
 
-def check_file_perms(file, user, group, mode, xattrs, **kwargs):
-  if user == None and group == None and mode == None and xattrs == None:
-    return True
-  elif not os.path.isfile(file):
-    return False
-
-  stat_info = os.stat(file)
-  uid = stat_info.st_uid
-  gid = stat_info.st_gid
-  ouser = pwd.getpwuid(uid)[0]
-  ogroup = grp.getgrgid(gid)[0] 
-  omode = ('%o' % stat.S_IMODE(stat_info.st_mode)).zfill(4)
-  oxattrs = posix_acl.ACL(file=file)
-  return user == ouser and group == ogroup and mode == omode and (xattrs is None or xattrs == oxattrs)
-
-def get_file_perms(file):
-  if not os.path.isfile(file):
-    return False
-
-  stat_info = os.stat(file)
-  uid = stat_info.st_uid
-  gid = stat_info.st_gid
-  user = pwd.getpwuid(uid)[0]
-  group = grp.getgrgid(gid)[0] 
-  mode = ('%o' % stat.S_IMODE(stat_info.st_mode)).zfill(4)
-  xattrs = posix_acl.ACL(file=file)
-  return '%s.%s.%s.%s' % (user, group, mode, xattrs.to_any_text(separator=',', options=posix_acl.TEXT_ABBREVIATE))
-
-def get_file_perms_string(args):
-  if args['xattrs'] is None:
-    xattrs = createacl(int(args['mode'], 8), '')
-  else:
-    xattrs = args['xattrs']
-
-  return '%s.%s.%s.%s' % (
-    args['user'],
-    args['group'],
-    args['mode'],
-    xattrs.to_any_text(separator=',', options=posix_acl.TEXT_ABBREVIATE))
-
-def createacl(mode, xattrstr):
-  acl = posix_acl.ACL(mode=mode)
-
-  for e in acl:
-    if e.tag_type == posix_acl.ACL_GROUP_OBJ:
-      group_perms = e.permset
-      break
-
-  mask = None
-
-  acl2 = posix_acl.ACL(text=xattrstr)
-  for e in acl2:
-    if e.tag_type == posix_acl.ACL_MASK:
-      mask = e
-    acl.append(e)
-
-  if mask is None:
-    mask = acl.append()
-    mask.tag_type = posix_acl.ACL_MASK
-    mask.permset = group_perms
-
-  return acl
-
 
 class ConcatCrontabs:
   def __init__(self, files):
@@ -295,9 +229,20 @@ class GitMan:
 
     def parse_file(file):
       root = os.path.join(self.path, config['root'])
-      default_attr = [None, None, None, None]
+      default_attr = None
+      intmode = 0
       def parse_attrs(args):
-        user, group, mode, xattr = default_attr
+        if default_attr:
+          user = default_attr.user
+          group = default_attr.group
+          if default_attr.extended:
+            mode = None
+            xattr = default_attr.mode
+          else:
+            mode = default_attr.mode
+            xattr = None
+        else:
+          user, group, mode, xattr = [None] * 4
         for arg in args:
           k, v = arg.split('=', 1)
           
@@ -307,14 +252,12 @@ class GitMan:
             group = v
           elif k == 'mode':
             mode = v
-            intmode = int(mode, 8)
-          elif k == 'xattr':
+          elif has_xacl and k == 'xattr':
             xattr = v
+          else:
+            raise RuntimeError('Invalid attribute: %s' % k)
             
-        if xattr and type(xattr) != posix_acl.ACL:
-          xattr = createacl(int(mode, 8), xattr)
-
-        return user, group, mode, xattr
+        return ACL.from_components(user, group, mode, xattr)
 
       with open(file) as f:
         for line in f:
@@ -328,7 +271,9 @@ class GitMan:
           elif cmd == 'import':
             parse_file(os.path.join(self.path, config['host_dir'], rest.strip()))
           elif cmd == 'defattr':
-            default_attr = parse_attrs(rest.split())[:]
+            default_attr = parse_attrs(rest.split())
+          elif cmd == 'cleardefattr':
+            default_attr = None
           elif cmd == 'crontab':
             user, file = rest.strip().split(' ')
             #TODO: verify is valid crontab file
@@ -344,13 +289,13 @@ class GitMan:
               args = a[1:]
             else:
               args = []
-            user, group, mode, xattrs = parse_attrs(args)
+            acl = parse_attrs(args)
             pattern = pattern.strip()
             if pattern[0] == '/':
               pattern = pattern[1:]
             files = ant_glob(start_dir=root, incl=pattern.strip(), dir=True)
             for file in files:
-              include_files.append([file, dict(user=user, group=group, mode=mode, root=root, xattrs=xattrs)])
+              include_files.append([file, dict(acl=acl, root=root)])
           elif cmd == 'exclude':
             exclude_files.extend(ant_glob(start_dir=root, incl=rest.strip(), dir=True))
           else:
@@ -456,30 +401,34 @@ class GitMan:
     for file, sys_file, new_args in self.added_files():
       if os.path.exists(file):
         if self.repo.git.hash_object(file) == new_args['hash']:
-          if not check_file_perms(file, **new_args):
-            holdup('ADDED: %s\n  PERMISSIONS INCORRECT: %s (locally) -> %s' %
-                   (file, get_file_perms(file), get_file_perms_string(new_args)))
+          file_acl = ACL.from_file(file)
+          git_acl = new_args['acl']
+          if file_acl != git_acl:
+            holdup('ADDED and exists locally (no changes): %s\n  PERMISSIONS INCORRECT: %s (locally) -> %s' %
+                   (file, file_acl, git_acl))
           else:
-            verbose('ADDED: %s (already exists locally, no changes)' % file)
+            verbose('ADDED and exists locally (no changes): %s' % file)
         else:
-          holdup('ADDED: %s (exists but has diffrences locally)' % file)
+          holdup('ADDED and exists with differences: %s' % file)
       else:
         verbose('ADDED: %s' % file)
 
     #Find files that will be update
     for file, sys_file, orig_args, new_args in self.modified_files():
-      if new_args['user'] != orig_args['user'] or \
-         new_args['group'] != orig_args['group'] or \
-         new_args['mode'] != orig_args['mode']:
-        holdup('PERMISSIONS: %s from %s -> %s' %
-               (file, get_file_perms_string(orig_args), get_file_perms_string(new_args)))
-      if not check_file_perms(file, **orig_args):
-        if not check_file_perms(file, **new_args):
-          verbose('PERMISSIONS: %s from %s -> %s' %
-                  (file, get_file_perms(file), get_file_perms_string(new_args)))
+      new_acl = new_args['acl']
+      orig_acl = orig_args['acl']
+      file_acl = ACL.from_file(file)
+      if type(new_acl) != type(orig_acl) or \
+         str(new_acl) != str(orig_acl):
+        holdup('PERMISSIONS changed in repo: %s from %s -> %s' %
+               (file, new_acl, orig_acl))
+      if file_acl != orig_acl:
+        if file_acl != new_acl:
+          verbose('PERMISSIONS changing: %s from %s -> %s' %
+                  (file, file_acl, new_acl))
         else:
-          holdup('PERMISSIONS: %s (locally changed) from %s -> %s' %
-                 (file, get_file_perms_string(orig_args), get_file_perms(file)))
+          holdup('PERMISSIONS were locally modified: %s from %s -> %s' %
+                 (file, orig_acl, file_acl))
       if not os.path.exists(file):
         holdup('MISSING FILE: %s' % file)
       elif self.repo.git.hash_object(file) != orig_args['hash']:
@@ -487,10 +436,8 @@ class GitMan:
           holdup('LOCALLY MODIFIED: %s' % file)
         else:
           verbose('INCORRECT VERSION: %s' % file)
-      # check current perms
       if new_args['hash'] != orig_args['hash']:
         verbose('MODIFIED: %s' % file)
-      # user change
 
     #Deleted crontabs
     for crontab in self.deleted_crontabs():
@@ -530,21 +477,6 @@ class GitMan:
 
     return holdups, verbose_info
 
-  def setperms(self, file, args):
-    if args['mode']:
-      os.chmod(file, int(args['mode'], 8))
-    if args['user']:
-      group = args['group']
-      gid = -1
-      if group:
-        gid = grp.getgrnam(args['group']).gr_gid
-      uid = pwd.getpwnam(args['user']).pw_uid
-      os.chown(file, uid, gid)
-    elif args['group']:
-      os.chgrp(file, args['group'])
-    if args['xattrs']:
-      args['xattrs'].applyto(file)
-
   def deploy(self, force, backup):
 #Delete files
     for file, sys_file, orig_args in self.deleted_files():
@@ -562,14 +494,14 @@ class GitMan:
       if not os.path.isdir(dir):
         os.makedirs(dir)
       shutil.copy(sys_file, file)
-      self.setperms(file, new_args)
+      new_args['acl'].applyto(file)
 
 #Update files
     for file, sys_file, orig_args, new_args in self.modified_files():
       if os.path.exists(file) and backup:
         shutil.move(file, '%s.gitman' % file)
       shutil.copy(sys_file, file)
-      self.setperms(file, new_args)
+      new_args['acl'].applyto(file)
 
     for crontab in self.deleted_crontabs():
       cmd = 'crontab -r -u %s' % crontab['user']
@@ -658,8 +590,24 @@ def main():
   parser.add_option('--deploy', help='deploy changes', action='store_true')
   parser.add_option('-d', '--base-path', help='base path')
   parser.add_option('-b', '--backup', help='backup files')
+  parser.add_option('--noacl', action='store_true', help='Disable ACL support')
 
   (options, args) = parser.parse_args()
+
+  if options.noacl:
+    os.environ['GITMAN_NOACL'] = '1'
+
+  # import ACL in the global namespace
+  # ACL module uses GITMAN_NOACL environment variable for conditional
+  # compilation
+  eval(
+    compile(
+      'from acl import ACL, has_xacl',
+      __file__,
+      'single'),
+    globals(),
+    globals())
+
   if not options.base_path:
     parser.error('-d/--base-path required')
   if options.force and not options.deploy:
