@@ -596,7 +596,7 @@ def main():
     os.environ['HOME'] = pwd.getpwuid(posix.getuid())[7]
 
   parser = optparse.OptionParser()
-  parser.add_option('-v', '--verbose', help='set verbose', action='store_true')
+  parser.add_option('-q', '--quiet', help='Silence output', action='store_true')
   parser.add_option('--force', help='force apply changes', action='store_true')
   parser.add_option('--deploy', help='deploy changes', action='store_true')
   parser.add_option('-d', '--base-path', help='base path')
@@ -625,7 +625,7 @@ def main():
     parser.error('-d/--base-path required')
   if options.force and not options.deploy:
     parser.error('Cannot force without deployment')
-  verbose = options.verbose
+  verbose = not options.quiet
   gitman = GitMan(options.base_path, options.origin, options.branch)
   if verbose:
     ansi.writeout('Deployed version: %s' % gitman.deployed_version())
