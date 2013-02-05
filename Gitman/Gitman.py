@@ -430,10 +430,10 @@ class GitMan:
     #Find files that will be deleted, only if they are unchanged
     for file, sys_file, orig_args in self.deleted_files():
       if not os.path.exists(file):
-        verbose('DELETED: %s (locally and in new config)' % file)
+        verbose('DELETED and already deleted locally: %s' % file)
       else:
         if not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
-          holdup('DELETED: %s (locally modified)' % file)
+          holdup('DELETED but locally modified: %s' % file)
         else:
           verbose('DELETED: %s' % file)
 
@@ -669,10 +669,10 @@ def main():
     ansi.writeout('Newest version: %s' % gitman.latest_version())
     ansi.writeout('  %d revisions between deployed and latest' %
                   gitman.undeployed_revisions())
-    ansi.writeout('New files to deploy:\n  %s' % '\n  '.join(sorted(gitman.new_files.keys())))
+    #ansi.writeout('New files to deploy:\n  %s' % '\n  '.join(sorted(gitman.new_files.keys())))
   holdups, verbose_info = gitman.show_deployment()
   if verbose:
-    ansi.writeout('%s\n' % '\n'.join(verbose_info))
+    ansi.writeout('\n'.join(verbose_info))
   if len(holdups) > 0 and not options.force:
     ansi.writeout('${BRIGHT_YELLOW}Force deployment needed:${RESET}')
     ansi.writeout('${BRIGHT_RED}%s${RESET}' % '\n'.join(holdups))
