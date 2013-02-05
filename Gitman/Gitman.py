@@ -223,14 +223,14 @@ class GitMan:
     if version:
       self.switch_to(version)
       original_config = self.load_config()
-      self.original_files, foo, self.original_crontabs = self.load_files(original_config)
+      self.original_files, self.original_crontabs = self.load_files(original_config)
     else:
       self.original_files = []
       self.original_crontabs = {}
     self.switch_to_head_and_update(branch)
     new_config = self.load_config()
     self.config = new_config
-    self.new_files, foo, self.new_crontabs = self.load_files(new_config)
+    self.new_files, self.new_crontabs = self.load_files(new_config)
 
   def load_files(self, config):
     host_file = os.path.join(self.path, config['host_dir'], config['host_file'])
@@ -239,11 +239,11 @@ class GitMan:
     include_files = []
     exclude_files = []
     crontabs = collections.defaultdict(dict)
-    cmds = []
 
     def parse_file(file):
       root = os.path.join(self.path, config['root'])
       default_attr = None
+      dir_attr = None
       intmode = 0
       def parse_attrs(args):
         if default_attr:
@@ -257,6 +257,18 @@ class GitMan:
             xattr = None
         else:
           user, group, mode, xattr = [None] * 4
+
+        if dir_attr:
+          if dir_attr.extended:
+            dirmode = None
+            dirxattr = dir_attr.mode
+          else:
+            dirmode = dir_attr.mode
+            dirxattr = None
+        else:
+          dirmode = None
+          dirxattr = None
+
         for arg in args:
           k, v = arg.split('=', 1)
           
@@ -268,10 +280,15 @@ class GitMan:
             mode = v
           elif has_xacl and k == 'xattr':
             xattr = v
+          elif k == 'dirmode':
+            dirmode = v
+          elif has_xacl and k == 'dirxattr':
+            dirxattr = v
           else:
             raise RuntimeError('Invalid attribute: %s' % k)
             
-        return ACL.from_components(user, group, mode, xattr)
+        return (ACL.from_components(user, group, mode, xattr),
+                ACL.from_components(user, group, dirmode, dirxattr))
 
       with open(file) as f:
         for line in f:
@@ -285,9 +302,12 @@ class GitMan:
           elif cmd == 'import':
             parse_file(os.path.join(self.path, config['host_dir'], rest.strip()))
           elif cmd == 'defattr':
-            default_attr = parse_attrs(rest.split())
-          elif cmd == 'cleardefattr':
-            default_attr = None
+            rest = rest.split()
+            if len(rest) == 1 and rest[0] == 'default':
+              default_attr = None
+              dir_attr = None
+            else:
+              default_attr, dir_attr = parse_attrs(rest)
           elif cmd == 'crontab':
             user, file = rest.strip().split(' ')
             #TODO: verify is valid crontab file
@@ -303,32 +323,35 @@ class GitMan:
               args = a[1:]
             else:
               args = []
-            acl = parse_attrs(args)
+            acl, diracl = parse_attrs(args)
             pattern = pattern.strip()
             if pattern[0] == '/':
               pattern = pattern[1:]
             files = ant_glob(start_dir=root, incl=pattern.strip(), dir=True)
             for file in files:
-              include_files.append([file, dict(acl=acl, root=root)])
+              if os.path.isdir(file):
+                fileacl = diracl
+              else:
+                fileacl = acl
+              include_files.append([file, dict(acl=fileacl, root=root, dirattr=dir_attr)])
           elif cmd == 'exclude':
             exclude_files.extend(ant_glob(start_dir=root, incl=rest.strip(), dir=True))
           else:
             raise RuntimeError('Unknown line in config file: %s' % line)
     parse_file(host_file)
     files = {}
-    dirs = {}
     for file, args in include_files:
-      if not os.path.isdir(file):
-        f = os.path.join(self.path, file)
+      f = os.path.join(self.path, file)
+      args['isdir'] = os.path.isdir(file)
+      args['realfile'] = file
+      if not args['isdir']:
         args['hash'] = self.repo.git.hash_object(file, with_keep_cwd=True) 
-        args['realfile'] = file
-        file = file[len(args['root']):]
-        if not file in files:
-          files[file] = args
-      else:
-        dirs[dir] = True
+      file = file[len(args['root']):]
+      if not file in files:
+        files[file] = args
 
     for file in exclude_files:
+      file = file[len(args['root']):]
       files.pop(file, None)
 
     for usercrontabs in crontabs.values():
@@ -337,7 +360,7 @@ class GitMan:
       usercrontabs['hash'] = hash
       usercrontabs['crontab'] = crontab
 
-    return files, cmds, crontabs
+    return files, crontabs
 
   def crontab_hash(self, user):
     try:
@@ -358,18 +381,21 @@ class GitMan:
     files = []
     for file in set(self.original_files) - set(self.new_files):
       files.append([file, self.original_files[file]['realfile'], self.original_files[file]])
+    files.sort()
     return files
 
   def added_files(self):
     files = []
     for file in set(self.new_files) - set(self.original_files):
       files.append([file, self.new_files[file]['realfile'], self.new_files[file]])
+    files.sort()
     return files
 
   def modified_files(self):
     files = []
     for file in set(self.new_files) & set(self.original_files):
       files.append([file, self.new_files[file]['realfile'], self.original_files[file], self.new_files[file]])
+    files.sort()
     return files
 
   def deleted_crontabs(self):
@@ -406,7 +432,7 @@ class GitMan:
       if not os.path.exists(file):
         verbose('DELETED: %s (locally and in new config)' % file)
       else:
-        if self.repo.git.hash_object(file) != orig_args['hash']:
+        if not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
           holdup('DELETED: %s (locally modified)' % file)
         else:
           verbose('DELETED: %s' % file)
@@ -414,7 +440,7 @@ class GitMan:
     #Find files that will be added, assuming they don't already exist
     for file, sys_file, new_args in self.added_files():
       if os.path.exists(file):
-        if self.repo.git.hash_object(file) == new_args['hash']:
+        if new_args['isdir'] or self.repo.git.hash_object(file) == new_args['hash']:
           file_acl = ACL.from_file(file)
           git_acl = new_args['acl']
           if file_acl != git_acl:
@@ -432,10 +458,9 @@ class GitMan:
       new_acl = new_args['acl']
       orig_acl = orig_args['acl']
       file_acl = ACL.from_file(file)
-      if type(new_acl) != type(orig_acl) or \
-         str(new_acl) != str(orig_acl):
+      if new_acl != orig_acl:
         holdup('PERMISSIONS changed in repo: %s from %s -> %s' %
-               (file, new_acl, orig_acl))
+               (file, orig_acl, new_acl))
       if file_acl != orig_acl:
         if file_acl != new_acl:
           verbose('PERMISSIONS changing: %s from %s -> %s' %
@@ -445,12 +470,12 @@ class GitMan:
                  (file, orig_acl, file_acl))
       if not os.path.exists(file):
         holdup('MISSING FILE: %s' % file)
-      elif self.repo.git.hash_object(file) != orig_args['hash']:
-        if self.repo.git.hash_object(file) != new_args['hash']:
+      elif not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
+        if not orig_args['isdir'] and self.repo.git.hash_object(file) != new_args['hash']:
           holdup('LOCALLY MODIFIED: %s' % file)
         else:
           verbose('INCORRECT VERSION: %s' % file)
-      if new_args['hash'] != orig_args['hash']:
+      if not orig_args['isdir'] and new_args['hash'] != orig_args['hash']:
         verbose('MODIFIED: %s' % file)
 
     #Deleted crontabs
@@ -493,10 +518,15 @@ class GitMan:
 
   def deploy(self, force, backup):
 #Delete files
-    for file, sys_file, orig_args in self.deleted_files():
+    for file, sys_file, orig_args in reversed(self.deleted_files()):
       if os.path.exists(file):
         if backup:
           os.rename(file, '%s.gitman' % file)
+        elif orig_args['isdir']:
+          try:
+            os.rmdir(file)
+          except:
+            ansi.writeout('${BRIGHT_RED}ERROR: Failed to remove directory: %s${RESET}' % file)
         else:
           os.unlink(file)
 
@@ -505,12 +535,19 @@ class GitMan:
       dir = os.path.dirname(file)
       if not os.path.isdir(dir):
         os.makedirs(dir)
-      fs.copy(sys_file, file, backup)
+        if new_args['dirattr']:
+          new_args['dirattr'].applyto(dir)
+      if new_args['isdir']:
+        if not os.path.exists(file):
+          os.mkdir(file)
+      else:
+        fs.copy(sys_file, file, backup)
       new_args['acl'].applyto(file)
 
 #Update files
     for file, sys_file, orig_args, new_args in self.modified_files():
-      fs.copy(sys_file, file, backup)
+      if not new_args['isdir']:
+        fs.copy(sys_file, file, backup)
       new_args['acl'].applyto(file)
 
     for crontab in self.deleted_crontabs():
