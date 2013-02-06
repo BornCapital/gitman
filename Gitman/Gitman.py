@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import difftools
 import fs
 
 import git
@@ -416,7 +417,7 @@ class GitMan:
       crontabs.append(self.new_crontabs[user])
     return crontabs
 
-  def show_deployment(self):
+  def show_deployment(self, show_diffs = False):
     verbose_info = []
     holdups = []
     can_deploy = True
@@ -434,6 +435,9 @@ class GitMan:
       else:
         if not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
           holdup('DELETED but locally modified: %s' % file)
+          if show_diffs:
+            verbose(difftools.get_diff_deployed_to_fs(
+              sys_file, file, self.repo, self.deployed_version()))
         else:
           verbose('DELETED: %s' % file)
 
@@ -450,6 +454,9 @@ class GitMan:
             verbose('ADDED and exists locally (no changes): %s' % file)
         else:
           holdup('ADDED and exists with differences: %s' % file)
+          if show_diffs:
+            verbose(difftools.get_diff_deployed_to_fs(
+              sys_file, file, self.repo, self.deployed_version()))
       else:
         verbose('ADDED: %s' % file)
 
@@ -469,14 +476,20 @@ class GitMan:
           holdup('PERMISSIONS were locally modified: %s from %s -> %s' %
                  (file, orig_acl, file_acl))
       if not os.path.exists(file):
-        holdup('MISSING FILE: %s' % file)
+        holdup('MODIFIED but missing locally: %s' % file)
       elif not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
         if not orig_args['isdir'] and self.repo.git.hash_object(file) != new_args['hash']:
-          holdup('LOCALLY MODIFIED: %s' % file)
+          holdup('MODIFIED but locally modified: %s' % file)
+          if show_diffs:
+            verbose(difftools.get_diff_deployed_to_fs(
+              sys_file, file, self.repo, self.deployed_version()))
         else:
-          verbose('INCORRECT VERSION: %s' % file)
+          verbose('MODIFIED locally without differences: %s' % file)
       if not orig_args['isdir'] and new_args['hash'] != orig_args['hash']:
         verbose('MODIFIED: %s' % file)
+        if show_diffs:
+          verbose(difftools.get_diff_deployed_to_newest(
+            sys_file, self.repo, self.deployed_version(), self.latest_version()))
 
     #Deleted crontabs
     for crontab in self.deleted_crontabs():
@@ -641,6 +654,7 @@ def main():
   parser.add_option('--noacl', action='store_true', help='Disable ACL support')
   parser.add_option('--origin', help='URL for Git Repository origin')
   parser.add_option('--branch', default='master', help='default: master')
+  parser.add_option('--diffs', action='store_true', help='Show diffs')
 
   (options, args) = parser.parse_args()
 
@@ -670,13 +684,14 @@ def main():
     ansi.writeout('  %d revisions between deployed and latest' %
                   gitman.undeployed_revisions())
     #ansi.writeout('New files to deploy:\n  %s' % '\n  '.join(sorted(gitman.new_files.keys())))
-  holdups, verbose_info = gitman.show_deployment()
+  holdups, verbose_info = gitman.show_deployment(options.diffs)
   if verbose:
     ansi.writeout('\n'.join(verbose_info))
   if len(holdups) > 0 and not options.force:
     ansi.writeout('${BRIGHT_YELLOW}Force deployment needed:${RESET}')
     ansi.writeout('${BRIGHT_RED}%s${RESET}' % '\n'.join(holdups))
-    sys.exit('Deployment skipped due to holdups...')
+    if options.deploy:
+      sys.exit('Deployment skipped due to holdups...')
 
   if options.deploy:
     gitman.deploy(backup=options.backup, force=options.force)
