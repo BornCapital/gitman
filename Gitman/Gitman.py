@@ -235,6 +235,9 @@ class GitMan:
 
   def load_files(self, config):
     host_file = os.path.join(self.path, config['host_dir'], config['host_file'])
+    if not os.path.exists(host_file):
+      if 'default_host_file' in config:
+        host_file = os.path.join(self.path, config['host_dir'], config['default_host_file'])
     comment = re.compile('^\s*#')
 
     include_files = []
