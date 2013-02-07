@@ -203,7 +203,7 @@ class ConcatCrontabs:
     
 
 class GitMan:
-  def __init__(self, path, origin=None, branch='master', deploy_file='.git/gitman_deploy'):
+  def __init__(self, path, origin=None, branch='master', info=None, deploy_file='.git/gitman_deploy'):
     self.path = path
     self.deploy_file = deploy_file + '.' + branch
 
@@ -219,8 +219,11 @@ class GitMan:
     else:
       self.repo = git.Repo.clone_from(origin, path)
 
-    version = self.deployed_version()
-    self.check_is_clean()
+    if info is None:
+      version = self.deployed_version()
+      self.check_is_clean()
+    else:
+      version = None
 
     if version:
       self.switch_to(version)
@@ -234,6 +237,11 @@ class GitMan:
       self.switch_to_head_and_update(branch)
     new_config = self.load_config()
     self.config = new_config
+
+    if info:
+      self.config['host'] = info
+      self.config['host_file'] = info
+
     self.new_files, self.new_crontabs, self.new_rpms = self.load_files(new_config)
     self.rpmdb = rpmtools.RPM_DB()
 
@@ -242,6 +250,7 @@ class GitMan:
     if not os.path.exists(host_file):
       if 'default_host_file' in config:
         host_file = os.path.join(self.path, config['host_dir'], config['default_host_file'])
+        config['host_file'] = config['default_host_file']
     comment = re.compile('^\s*#')
 
     include_files = []
@@ -717,6 +726,10 @@ class GitMan:
             config[key] = parse_config(value, config)
     return config;
 
+  def dump_added(self):
+    for file, sys_file, new_args in self.added_files():
+      print 'ADDED:', file
+
 
 def main():
   import ansi
@@ -736,6 +749,7 @@ def main():
   parser.add_option('--origin', help='URL for Git Repository origin')
   parser.add_option('--branch', default='master', help='Default: %default')
   parser.add_option('--diffs', action='store_true', help='Show diffs')
+  parser.add_option('--info', metavar='MACHINE', help='Dump deployment info for a machine')
 
   (options, args) = parser.parse_args()
 
@@ -757,22 +771,29 @@ def main():
     parser.error('-d/--repo-path required')
   if options.force and not options.deploy:
     parser.error('Cannot force without deployment')
-  verbose = not options.quiet
-  gitman = GitMan(options.repo_path, options.origin, options.branch)
+  if options.info:
+    if options.quiet or options.deploy or options.backup or options.diffs:
+      parser.error('Cannot use -q/-D/-b/--diffs with --info')
+  verbose = not options.quiet and not options.info
+  gitman = GitMan(options.repo_path, options.origin, options.branch, info=options.info)
   if verbose:
     ansi.writeout('Deployed version: %s' % gitman.deployed_version())
     ansi.writeout('Newest version: %s' % gitman.latest_version())
     ansi.writeout('  %d revisions between deployed and latest' %
                   gitman.undeployed_revisions())
     #ansi.writeout('New files to deploy:\n  %s' % '\n  '.join(sorted(gitman.new_files.keys())))
-  holdups, verbose_info = gitman.show_deployment(options.diffs)
-  if verbose:
-    ansi.writeout('\n'.join(verbose_info))
-  if len(holdups) > 0 and not options.force:
-    ansi.writeout('${BRIGHT_YELLOW}Force deployment needed:${RESET}')
-    ansi.writeout('${BRIGHT_RED}%s${RESET}' % '\n'.join(holdups))
+  if options.info is None:
+    holdups, verbose_info = gitman.show_deployment(options.diffs)
+    if verbose:
+      ansi.writeout('\n'.join(verbose_info))
+    if len(holdups) > 0 and not options.force:
+      ansi.writeout('${BRIGHT_YELLOW}Force deployment needed:${RESET}')
+      ansi.writeout('${BRIGHT_RED}%s${RESET}' % '\n'.join(holdups))
+      if options.deploy:
+        sys.exit('Deployment skipped due to holdups...')
+
     if options.deploy:
-      sys.exit('Deployment skipped due to holdups...')
+      gitman.deploy(backup=options.backup, force=options.force)
   else:
     print 'Showing deployment info for:', gitman.config['host_file']
     gitman.dump_added()
