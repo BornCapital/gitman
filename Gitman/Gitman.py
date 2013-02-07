@@ -727,14 +727,14 @@ def main():
     os.environ['HOME'] = pwd.getpwuid(posix.getuid())[7]
 
   parser = optparse.OptionParser()
-  parser.add_option('-q', '--quiet', help='Silence output', action='store_true')
-  parser.add_option('--force', help='force apply changes', action='store_true')
-  parser.add_option('--deploy', help='deploy changes', action='store_true')
-  parser.add_option('-d', '--base-path', help='base path')
+  parser.add_option('-q', '--quiet', action='store_true', help='Silence output')
+  parser.add_option('-f', '--force', action='store_true', help='Force apply changes')
+  parser.add_option('-D', '--deploy', action='store_true', help='Deploy changes')
+  parser.add_option('-d', '--repo-path', help='Repo path')
   parser.add_option('-b', '--backup', action='store_true', help='backup files')
   parser.add_option('--noacl', action='store_true', help='Disable ACL support')
   parser.add_option('--origin', help='URL for Git Repository origin')
-  parser.add_option('--branch', default='master', help='default: master')
+  parser.add_option('--branch', default='master', help='Default: %default')
   parser.add_option('--diffs', action='store_true', help='Show diffs')
 
   (options, args) = parser.parse_args()
@@ -753,12 +753,12 @@ def main():
     globals(),
     globals())
 
-  if not options.base_path:
-    parser.error('-d/--base-path required')
+  if not options.repo_path:
+    parser.error('-d/--repo-path required')
   if options.force and not options.deploy:
     parser.error('Cannot force without deployment')
   verbose = not options.quiet
-  gitman = GitMan(options.base_path, options.origin, options.branch)
+  gitman = GitMan(options.repo_path, options.origin, options.branch)
   if verbose:
     ansi.writeout('Deployed version: %s' % gitman.deployed_version())
     ansi.writeout('Newest version: %s' % gitman.latest_version())
