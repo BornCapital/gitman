@@ -2,6 +2,7 @@
 
 import difftools
 import fs
+import rpmtools
 
 import git
 
@@ -220,18 +221,21 @@ class GitMan:
 
     version = self.deployed_version()
     self.check_is_clean()
-    
+
     if version:
       self.switch_to(version)
       original_config = self.load_config()
-      self.original_files, self.original_crontabs = self.load_files(original_config)
+      self.original_files, self.original_crontabs, self.orig_rpms = self.load_files(original_config)
     else:
       self.original_files = []
       self.original_crontabs = {}
-    self.switch_to_head_and_update(branch)
+      self.orig_rpms = {}
+    if info is None:
+      self.switch_to_head_and_update(branch)
     new_config = self.load_config()
     self.config = new_config
-    self.new_files, self.new_crontabs = self.load_files(new_config)
+    self.new_files, self.new_crontabs, self.new_rpms = self.load_files(new_config)
+    self.rpmdb = rpmtools.RPM_DB()
 
   def load_files(self, config):
     host_file = os.path.join(self.path, config['host_dir'], config['host_file'])
@@ -243,6 +247,7 @@ class GitMan:
     include_files = []
     exclude_files = []
     crontabs = collections.defaultdict(dict)
+    rpms = {}
 
     def parse_file(file):
       root = os.path.join(self.path, config['root'])
@@ -320,6 +325,9 @@ class GitMan:
               raise RuntimeError('Crontab file %s does not exist' % crontab_path)
             crontabs[user].setdefault('files', list()).append(crontab_path)
             crontabs[user]['user'] = user
+          elif cmd == 'rpm':
+            pkg = rpmtools.Package(rest.strip())
+            rpms[pkg.name] = pkg
           elif cmd == 'include':
             a = rest.split(' ')
             pattern = a[0]
@@ -364,7 +372,7 @@ class GitMan:
       usercrontabs['hash'] = hash
       usercrontabs['crontab'] = crontab
 
-    return files, crontabs
+    return files, crontabs, rpms
 
   def crontab_hash(self, user):
     try:
@@ -419,6 +427,15 @@ class GitMan:
     for user in set(self.new_crontabs.keys()) & set(self.original_crontabs.keys()):
       crontabs.append(self.new_crontabs[user])
     return crontabs
+
+  def deleted_rpms(self):
+    return [self.orig_rpms[rpm] for rpm in set(self.orig_rpms) - set(self.new_rpms)]
+
+  def added_rpms(self):
+    return [self.new_rpms[rpm] for rpm in set(self.new_rpms) - set(self.orig_rpms)]
+
+  def modified_rpms(self):
+    return [self.new_rpms[rpm] for rpm in set(self.new_rpms) & set(self.orig_rpms)]
 
   def show_deployment(self, show_diffs = False):
     verbose_info = []
@@ -530,9 +547,60 @@ class GitMan:
       else:
         verbose('MODIFIED crontab: %s' % user)
 
+    #Deleted rpms
+    for rpm in self.deleted_rpms():
+      if rpm not in self.rpmdb:
+        verbose('DELETED rpm already removed: %s' % rpm)
+      elif not self.rpmdb.verify(
+          rpm, holdup, msg='DELETED rpm but has local differences: %s' % rpm):
+        pass
+      elif not self.rpmdb.remove(rpm, test=True, holdup=holdup):
+        pass
+      else:
+        verbose('DELETED rpm: %s' % rpm)
+
+    #Added rpms
+    for rpm in self.added_rpms():
+      if rpm not in self.rpmdb: # not deployed yet
+        verbose('ADDED rpm: %s' % rpm)
+        continue
+      elif rpm.version is None:
+        verbose('ADDED unversioned rpm, may already be deployed: %s' % rpm)
+      elif rpm == self.rpmdb[rpm.name]:
+        verbose('ADDED rpm already deployed: %s' % rpm)
+      elif rpm < self.rpmdb[rpm.name]:
+        raise RuntimeError('RPM downgrades not supported: %s' % rpm)
+      else:
+        holdup('ADDED rpm already deployed with wrong version: %s (%s deployed)' %
+               (rpm, self.rpmdb[rpm.name]))
+      if not self.rpmdb.verify(
+          rpm, holdup, msg='INSTALLED rpm has local differences: %s' %
+          self.rpmdb[rpm.name]):
+        self.rpmdb.queue_install(rpm, reinstall=True) # flag this to be reinstalled if --force 
+
+    #Modified rpms
+    for rpm in self.modified_rpms():
+      if rpm not in self.rpmdb:
+        if rpm == self.orig_rpms[rpm.name]:
+          holdup('MISSING rpm: %s' % rpm)
+        else:
+          holdup('UPGRADED rpm missing locally: %s' % self.orig_rpms[rpm.name])
+      elif rpm < self.rpmdb[rpm.name]:
+        raise RuntimeError('RPM downgrades not supported: %s' % rpm)
+      elif rpm == self.rpmdb[rpm.name]: # already deployed
+        if not self.rpmdb.verify(
+            rpm, holdup, msg='INSTALLED rpm has local differences: %s' % rpm):
+          self.rpmdb.queue_install(rpm, reinstall=True) # flag this to be reinstalled if --force 
+      else: # upgrade rpm
+        if not self.rpmdb.verify(
+            rpm, holdup, msg='UPGRADED rpm has local differences: %s' % self.rpmdb[rpm.name]):
+          pass
+        else:
+          verbose('UPGRADED rpm: %s' % rpm)
+
     return holdups, verbose_info
 
-  def deploy(self, force, backup):
+  def deploy(self, force, backup, verbose=False):
 #Delete files
     for file, sys_file, orig_args in reversed(self.deleted_files()):
       if os.path.exists(file):
@@ -578,6 +646,16 @@ class GitMan:
       cmd = 'crontab -u %s %s' % (crontab['user'], crontab['crontab'].name)
       if 0 != os.system(cmd):
         raise RuntimeError('Failed to run cmd: %s' % cmd)
+
+    deleted_rpms = self.deleted_rpms()
+    if len(deleted_rpms):
+      self.rpmdb.remove(deleted_rpms)
+    self.rpmdb.update_installed_packages()
+    for rpm in self.added_rpms():
+      self.rpmdb.queue_install(rpm)
+    for rpm in self.modified_rpms():
+      self.rpmdb.queue_install(rpm)
+    self.rpmdb.install()
 
     with open(os.path.join(self.path, self.deploy_file), 'w') as f:
       f.write(self.latest_version())
@@ -695,6 +773,9 @@ def main():
     ansi.writeout('${BRIGHT_RED}%s${RESET}' % '\n'.join(holdups))
     if options.deploy:
       sys.exit('Deployment skipped due to holdups...')
+  else:
+    print 'Showing deployment info for:', gitman.config['host_file']
+    gitman.dump_added()
 
   if options.deploy:
     gitman.deploy(backup=options.backup, force=options.force)
