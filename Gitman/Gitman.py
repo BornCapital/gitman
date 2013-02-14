@@ -421,19 +421,19 @@ class GitMan:
 
   def deleted_crontabs(self):
     crontabs = []
-    for user in set(self.original_crontabs.keys()) - set(self.new_crontabs.keys()):
+    for user in set(self.original_crontabs) - set(self.new_crontabs):
       crontabs.append(self.original_crontabs[user])
     return crontabs
 
   def added_crontabs(self):
     crontabs = []
-    for user in set(self.new_crontabs.keys()) - set(self.original_crontabs.keys()):
+    for user in set(self.new_crontabs) - set(self.original_crontabs):
       crontabs.append(self.new_crontabs[user])
     return crontabs
 
   def modified_crontabs(self):
     crontabs = []
-    for user in set(self.new_crontabs.keys()) & set(self.original_crontabs.keys()):
+    for user in set(self.new_crontabs) & set(self.original_crontabs):
       crontabs.append(self.new_crontabs[user])
     return crontabs
 
@@ -460,10 +460,10 @@ class GitMan:
     #Find files that will be deleted, only if they are unchanged
     for file, sys_file, orig_args in self.deleted_files():
       if not os.path.exists(file):
-        verbose('DELETED and already deleted locally: %s' % file)
+        verbose('DELETED and already removed: %s' % file)
       else:
         if not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
-          holdup('DELETED but locally modified: %s' % file)
+          holdup('DELETED but has local differences: %s' % file)
           if show_diffs:
             verbose(difftools.get_diff_deployed_to_fs(
               sys_file, file, self.repo, self.deployed_version()))
@@ -477,10 +477,10 @@ class GitMan:
           file_acl = ACL.from_file(file)
           git_acl = new_args['acl']
           if file_acl != git_acl:
-            holdup('ADDED and exists locally (no changes): %s\n  PERMISSIONS INCORRECT: %s (locally) -> %s' %
+            holdup('ADDED and exists locally: %s\n  PERMISSIONS INCORRECT: %s (locally) -> %s' %
                    (file, file_acl, git_acl))
           else:
-            verbose('ADDED and exists locally (no changes): %s' % file)
+            verbose('ADDED and exists locally: %s' % file)
         else:
           holdup('ADDED and exists with differences: %s' % file)
           if show_diffs:
@@ -508,12 +508,10 @@ class GitMan:
         holdup('MODIFIED but missing locally: %s' % file)
       elif not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
         if not orig_args['isdir'] and self.repo.git.hash_object(file) != new_args['hash']:
-          holdup('MODIFIED but locally modified: %s' % file)
+          holdup('MODIFIED but has local differences: %s' % file)
           if show_diffs:
             verbose(difftools.get_diff_deployed_to_fs(
               sys_file, file, self.repo, self.deployed_version()))
-        else:
-          verbose('MODIFIED locally without differences: %s' % file)
       if not orig_args['isdir'] and new_args['hash'] != orig_args['hash']:
         verbose('MODIFIED: %s' % file)
         if show_diffs:
@@ -525,9 +523,9 @@ class GitMan:
       user = crontab['user']
       hash = self.crontab_hash(user)
       if hash == 0: # already deleted
-        verbose('DELETED crontab: %s (already deployed)' % user)
+        verbose('DELETED crontab already removed: %s' % user)
       elif hash != crontab['hash']:
-        holdup('DELETED (locally modified) crontab: %s' % user)
+        holdup('DELETED crontab but has local differences: %s' % user)
       else:
         verbose('DELETED crontab: %s' % user)
 
@@ -538,9 +536,9 @@ class GitMan:
       if hash == 0: # not deployed yet
         verbose('ADDED crontab: %s' % user)
       elif hash == crontab['hash']:
-        verbose('ADDED crontab: %s (already deployed)' % user)
+        verbose('ADDED crontab already deployed: %s' % user)
       else:
-        holdup('ADDED (locally exists) crontab: %s' % user)
+        holdup('ADDED crontab already exists with differences: %s' % user)
 
     #Modified crontabs
     for crontab_new in self.modified_crontabs():
@@ -548,11 +546,11 @@ class GitMan:
       crontab_orig = self.original_crontabs[user]
       hash = self.crontab_hash(user)
       if hash != crontab_orig['hash']:
-        holdup('MODIFIED (locally modified) crontab: %s' % user)
+        holdup('MODIFIED crontab but has local differences: %s' % user)
       elif crontab_new['hash'] == crontab_orig['hash']:
         continue
       elif hash == crontab_new['hash']:
-        verbose('MODIFIED crontab: %s (already deployed)' % user)
+        verbose('MODIFIED crontab already deployed: %s' % user)
       else:
         verbose('MODIFIED crontab: %s' % user)
 
@@ -609,8 +607,8 @@ class GitMan:
 
     return holdups, verbose_info
 
-  def deploy(self, force, backup, verbose=False):
-#Delete files
+  def deploy(self, force, backup):
+    #Delete files
     for file, sys_file, orig_args in reversed(self.deleted_files()):
       if os.path.exists(file):
         if backup:
@@ -623,7 +621,7 @@ class GitMan:
         else:
           os.unlink(file)
 
-#Add files
+    #Add files
     for file, sys_file, new_args in self.added_files():
       dir = os.path.dirname(file)
       if not os.path.isdir(dir):
@@ -637,7 +635,7 @@ class GitMan:
         fs.copy(sys_file, file, backup)
       new_args['acl'].applyto(file)
 
-#Update files
+    #Update files
     for file, sys_file, orig_args, new_args in self.modified_files():
       if not new_args['isdir']:
         fs.copy(sys_file, file, backup)
@@ -700,9 +698,11 @@ class GitMan:
   def undeployed_revisions(self):
     if not self.deployed_version():
       revision_string = self.repo.active_branch.tracking_branch()
+    elif self.deployed_version() == self.latest_version():
+      return 0
     else:
       revision_string = '%s..%s' % (self.deployed_version(), self.repo.active_branch.tracking_branch())
-    return len(self.repo.git.log('--pretty=tformat:"%H"', revision_string).split('\n')) - 1
+    return len(self.repo.git.log('--pretty=tformat:"%H"', revision_string).split('\n'))
 
   def load_config(self):
     base_path = self.path
@@ -781,7 +781,6 @@ def main():
     ansi.writeout('Newest version: %s' % gitman.latest_version())
     ansi.writeout('  %d revisions between deployed and latest' %
                   gitman.undeployed_revisions())
-    #ansi.writeout('New files to deploy:\n  %s' % '\n  '.join(sorted(gitman.new_files.keys())))
   if options.info is None:
     holdups, verbose_info = gitman.show_deployment(options.diffs)
     if verbose:
