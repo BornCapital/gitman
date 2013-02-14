@@ -12,6 +12,7 @@ if setup_dir:
   os.chdir(setup_dir)
 
 def run_test(mod):
+  print 'CWD:', os.getcwd()
   if os.system('python tests/%s.py' % mod):
     raise RuntimeError('Test Failed: ' + mod)
 
@@ -34,4 +35,6 @@ if not tests_failed:
         packages=['Gitman'],
         py_modules=['ansi',],
         data_files=[(bindir, ['gitman'])])
+else:
+  sys.exit('Tests failed!')
 
