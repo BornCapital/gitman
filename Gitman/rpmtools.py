@@ -89,14 +89,24 @@ class RPM_DB:
     return True
 
   def queue_install(self, pkg, reinstall=False):
-    if reinstall:
-      self.__reinstall_set.add(pkg)
     if (pkg.name not in self.__pkgs or
         not pkg.version or # pkg is newer maybe?
         pkg > self.__pkgs[pkg.name]):
       self.__install_set.add(pkg)
+    elif reinstall:
+      self.__reinstall_set.add(pkg)
 
   def install(self):
+    if len(self.__install_set):
+      cmd = 'yum install -q -y'.split()
+      cmd.extend([pkg.url for pkg in self.__install_set])
+
+      rc = subprocess.call(cmd)
+
+      if rc != 0:
+        raise RuntimeError('yum failed to install required packages: %s' %
+                          ' '.join(cmd))
+
     if len(self.__reinstall_set):
       cmd = 'yum reinstall -q -y'.split()
       cmd.extend([pkg.url for pkg in self.__reinstall_set])
@@ -107,15 +117,6 @@ class RPM_DB:
         raise RuntimeError('yum failed to reinstall required packages: %s' %
                           ' '.join(cmd))
 
-    if len(self.__install_set):
-      cmd = 'yum install -q -y'.split()
-      cmd.extend([pkg.url for pkg in self.__install_set])
-
-      rc = subprocess.call(cmd)
-
-      if rc != 0:
-        raise RuntimeError('yum failed to install required packages: %s' %
-                          ' '.join(cmd))
 
   def remove(self, pkg, test=False, holdup=None):
     if test:
