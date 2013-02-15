@@ -797,6 +797,3 @@ def main():
     print 'Showing deployment info for:', gitman.config['host_file']
     gitman.dump_added()
 
-  if options.deploy:
-    gitman.deploy(backup=options.backup, force=options.force)
-
