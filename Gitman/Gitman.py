@@ -775,7 +775,7 @@ def main():
     if options.quiet or options.deploy or options.backup or options.diffs:
       parser.error('Cannot use -q/-D/-b/--diffs with --info')
   verbose = not options.quiet and not options.info
-  gitman = GitMan(options.repo_path, options.origin, options.branch, info=options.info)
+  gitman = GitMan(os.path.abspath(options.repo_path), options.origin, options.branch, info=options.info)
   if verbose:
     ansi.writeout('Deployed version: %s' % gitman.deployed_version())
     ansi.writeout('Newest version: %s' % gitman.latest_version())
