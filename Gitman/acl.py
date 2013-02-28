@@ -55,6 +55,8 @@ if has_xacl:
 class ACL(object):
   @staticmethod
   def from_file(file):
+    if not os.path.exists(file):
+      return None
     try:
       if has_xacl and posix_acl.has_extended(file):
         return ExtendedACL.__from_file(file)
