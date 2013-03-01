@@ -53,5 +53,5 @@ def get_diff_fs_to_newest(fs_file, git_file, repo, rev):
   working_dir = repo.working_dir
   assert(git_file.startswith(working_dir))
   git_file = git_file[len(working_dir):].lstrip('/')
-  return get_diff(fs_file, git_file, repo, rev)
+  return get_diff(fs_file, git_file, repo, rev2=rev)
 
