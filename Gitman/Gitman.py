@@ -484,8 +484,8 @@ class GitMan:
         else:
           holdup('ADDED and exists with differences: %s' % file)
           if show_diffs:
-            verbose(difftools.get_diff_deployed_to_fs(
-              sys_file, file, self.repo, self.deployed_version()))
+            verbose(difftools.get_diff_fs_to_newest(
+              file, sys_file, self.repo, self.latest_version()))
       else:
         verbose('ADDED: %s' % file)
 

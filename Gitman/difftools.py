@@ -47,3 +47,11 @@ def get_diff_deployed_to_newest(git_file, repo, rev1, rev2):
   return get_diff(git_file, git_file, repo, rev1, rev2)
 
 
+def get_diff_fs_to_newest(fs_file, git_file, repo, rev):
+  if rev is None:
+    return ''
+  working_dir = repo.working_dir
+  assert(git_file.startswith(working_dir))
+  git_file = git_file[len(working_dir):].lstrip('/')
+  return get_diff(fs_file, git_file, repo, rev)
+
