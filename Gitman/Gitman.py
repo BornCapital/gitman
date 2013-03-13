@@ -207,6 +207,11 @@ class GitMan:
     self.path = path
     self.deploy_file = deploy_file + '.' + branch
 
+    if info:
+      self.host = info
+    else:
+      self.host = socket.gethostbyaddr(socket.gethostname())[0]
+
     if os.path.exists(path):
       try:
         self.repo = git.Repo(path)
@@ -709,7 +714,7 @@ class GitMan:
     config = {
         'securepath': '/usr/sbin:/usr/bin:/sbin:/bin',
         'root': 'root',
-        'host': socket.gethostbyaddr(socket.gethostname())[0],
+        'host': self.host,
         'host_dir': 'hosts'
     };
     config['host_file'] = config['host']
