@@ -576,6 +576,7 @@ class GitMan:
       if rpm not in self.rpmdb: # not deployed yet
         verbose('ADDED rpm: %s' % rpm)
         self.rpmdb.install(rpm)
+        continue
       elif rpm.version is None:
         verbose('ADDED unversioned rpm, may already be deployed: %s' % rpm)
       elif rpm == self.rpmdb[rpm.name]:

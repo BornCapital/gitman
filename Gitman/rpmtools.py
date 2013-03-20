@@ -5,10 +5,6 @@ import subprocess
 import tempfile
 import sys
 
-sys.path.insert(0,'/usr/share/yum-cli/')
-import shell
-import yummain
-
 RPM_RE = re.compile(r'^(?P<name>.+)\-(?P<version>[\d\.]+)\-(?P<release>.*?)(\.rpm)?$')
 
 class Package(object):
@@ -122,7 +118,6 @@ class RPM_DB:
       for pkg in self.__install_set:
         yum_script.write("install %s\n" % pkg.url)
         doing["install"].append(pkg.name)
-      #TODO: overwrite their logger with one that we can buffer?
       yum_script.write("config errorlevel 2\n")
       yum_script.write("run\n")
       yum_script.flush()
@@ -132,15 +127,13 @@ class RPM_DB:
       cmd = ('-y %s %s shell %s' % (test_cmd, protected_cmd, yum_script.name)).split()
       if test:
         cmd.insert(0, '-q')
-      
-      old_run = shell.YumShell.do_run
-      def do_run(self, line):
-        ret = old_run(self, line)
-        if ret == False:
-          self.result = 1
-        return ret
-      shell.YumShell.do_run = do_run
-      rc = yummain.user_main(cmd)
+      cmd.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'shell.py'))
+
+      proc = subprocess.Popen(cmd)
+      output = proc.communicate()[0]
+#TODO: ctrl-c will not stop this and leave it in an incomplete state
+#and require a yum-cleanup
+      rc = proc.wait()
 
       if rc != 0:
         def get_info():
