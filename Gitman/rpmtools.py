@@ -2,10 +2,14 @@ import os
 import re
 import rpm
 import subprocess
+import tempfile
+import sys
 
+sys.path.insert(0,'/usr/share/yum-cli/')
+import shell
+import yummain
 
 RPM_RE = re.compile(r'^(?P<name>.+)\-(?P<version>[\d\.]+)\-(?P<release>.*?)(\.rpm)?$')
-
 
 class Package(object):
   __slots__ = 'name version release url'.split()
@@ -66,6 +70,8 @@ class RPM_DB:
   def __init__(self):
     self.__install_set = set()
     self.__reinstall_set = set()
+    self.__remove_set = set()
+    self.__protect_set = set()
     self.update_installed_packages()
 
   def update_installed_packages(self):
@@ -88,59 +94,65 @@ class RPM_DB:
       curpkg = self.__pkgs[pkg.name]
     return True
 
-  def queue_install(self, pkg, reinstall=False):
+  def install(self, pkg, reinstall=False):
+    if reinstall:
+      self.__reinstall_set.add(pkg)
     if (pkg.name not in self.__pkgs or
         not pkg.version or # pkg is newer maybe?
         pkg > self.__pkgs[pkg.name]):
       self.__install_set.add(pkg)
-    elif reinstall:
-      self.__reinstall_set.add(pkg)
+  
+  def remove(self, pkg):
+    self.__remove_set.add(pkg)
 
-  def install(self):
-    if len(self.__install_set):
-      cmd = 'yum install -q -y'.split()
-      cmd.extend([pkg.url for pkg in self.__install_set])
+  def protect(self, pkg):
+    self.__protect_set.add(pkg.name)
 
-      rc = subprocess.call(cmd)
+  def run(self, test=True, holdup=None, reinstall=True):
+    with tempfile.NamedTemporaryFile() as yum_script:
+      protected = set()
+      doing = {"erase": [], "reinstall": [], "install": []}
+      for pkg in self.__remove_set:
+        yum_script.write("erase %s\n" % pkg)
+        doing["erase"].append(pkg.name)
+      if reinstall:
+        for pkg in self.__reinstall_set:
+          yum_script.write("reinstall %s\n" % pkg.url)
+          doing["reinstall"].append(pkg.name)
+      for pkg in self.__install_set:
+        yum_script.write("install %s\n" % pkg.url)
+        doing["install"].append(pkg.name)
+      #TODO: overwrite their logger with one that we can buffer?
+      yum_script.write("config errorlevel 2\n")
+      yum_script.write("run\n")
+      yum_script.flush()
+
+      test_cmd = "" if not test else "--setopt=tsflags=test"
+      protected_cmd = "" if len(self.__protect_set) == 0 else "--setopt=protected_packages=%s" % ",".join(self.__protect_set)
+      cmd = ('-y %s %s shell %s' % (test_cmd, protected_cmd, yum_script.name)).split()
+      if test:
+        cmd.insert(0, '-q')
+      
+      old_run = shell.YumShell.do_run
+      def do_run(self, line):
+        ret = old_run(self, line)
+        if ret == False:
+          self.result = 1
+        return ret
+      shell.YumShell.do_run = do_run
+      rc = yummain.user_main(cmd)
 
       if rc != 0:
-        raise RuntimeError('yum failed to install required packages: %s' %
-                          ' '.join(cmd))
-
-    if len(self.__reinstall_set):
-      cmd = 'yum reinstall -q -y'.split()
-      cmd.extend([pkg.url for pkg in self.__reinstall_set])
-
-      rc = subprocess.call(cmd)
-
-      if rc != 0:
-        raise RuntimeError('yum failed to reinstall required packages: %s' %
-                          ' '.join(cmd))
-
-
-  def remove(self, pkg, test=False, holdup=None):
-    if test:
-      cmd = 'rpm --quiet --test -e'.split()
-    else:
-      cmd = 'yum remove -y'.split()
-
-    if type(pkg) is Package:
-      cmd.append(str(pkg))
-    else:
-      cmd.extend([str(rpm) for rpm in pkg])
-    
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    output = proc.communicate()[0]
-    rc = proc.wait()
-
-    if rc != 0:
-      if not test:
-        raise RuntimeError('Failed to remove %s' % pkg)
-      if holdup:
-        holdup('DELETED rpm cannot be removed: %s\n%s' % (pkg, output.rstrip()))
-      return False
-
-    return True
+        def get_info():
+          return "erase: %s, reinstall: %s, install: %s" % (
+            ",".join(doing["erase"]), ",".join(doing["reinstall"]), ",".join(doing["install"])
+          )
+        if test and holdup:
+          holdup("Unable to run rpm transaction: \n%s" % 
+            get_info())
+        else:
+          raise RuntimeError("Unable to run rpm transaction:\n%s" % 
+              get_info())
 
   def verify(self, pkg, holdup=None, msg=None):
     if pkg.name not in self.__pkgs:

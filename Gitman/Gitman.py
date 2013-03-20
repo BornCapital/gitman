@@ -566,16 +566,16 @@ class GitMan:
       elif not self.rpmdb.verify(
           rpm, holdup, msg='DELETED rpm but has local differences: %s' % rpm):
         pass
-      elif not self.rpmdb.remove(rpm, test=True, holdup=holdup):
-        pass
-      else:
-        verbose('DELETED rpm: %s' % rpm)
+      else :
+        verbose("DELETED: %s" % rpm)
+        self.rpmdb.remove(rpm)
 
     #Added rpms
     for rpm in self.added_rpms():
+      self.rpmdb.protect(rpm)
       if rpm not in self.rpmdb: # not deployed yet
         verbose('ADDED rpm: %s' % rpm)
-        continue
+        self.rpmdb.install(rpm)
       elif rpm.version is None:
         verbose('ADDED unversioned rpm, may already be deployed: %s' % rpm)
       elif rpm == self.rpmdb[rpm.name]:
@@ -588,10 +588,11 @@ class GitMan:
       if not self.rpmdb.verify(
           rpm, holdup, msg='INSTALLED rpm has local differences: %s' %
           self.rpmdb[rpm.name]):
-        self.rpmdb.queue_install(rpm, reinstall=True) # flag this to be reinstalled if --force 
+        self.rpmdb.install(rpm, reinstall=True) # flag this to be reinstalled if --force 
 
     #Modified rpms
     for rpm in self.modified_rpms():
+      self.rpmdb.protect(rpm)
       if rpm not in self.rpmdb:
         if rpm == self.orig_rpms[rpm.name]:
           holdup('MISSING rpm: %s' % rpm)
@@ -602,17 +603,24 @@ class GitMan:
       elif rpm == self.rpmdb[rpm.name]: # already deployed
         if not self.rpmdb.verify(
             rpm, holdup, msg='INSTALLED rpm has local differences: %s' % rpm):
-          self.rpmdb.queue_install(rpm, reinstall=True) # flag this to be reinstalled if --force 
+          self.rpmdb.install(rpm, reinstall=True) # flag this to be reinstalled if --force 
       else: # upgrade rpm
         if not self.rpmdb.verify(
             rpm, holdup, msg='UPGRADED rpm has local differences: %s' % self.rpmdb[rpm.name]):
           pass
         else:
           verbose('UPGRADED rpm: %s' % rpm)
+    
+    for rpm in self.added_rpms():
+      self.rpmdb.install(rpm)
+    for rpm in self.modified_rpms():
+      self.rpmdb.install(rpm)
+
+    self.rpmdb.run(test=True, holdup=holdup)
 
     return holdups, verbose_info
 
-  def deploy(self, force, backup):
+  def deploy(self, force, backup, reinstall=True):
     #Delete files
     for file, sys_file, orig_args in reversed(self.deleted_files()):
       if os.path.exists(file):
@@ -659,15 +667,7 @@ class GitMan:
       if 0 != os.system(cmd):
         raise RuntimeError('Failed to run cmd: %s' % cmd)
 
-    deleted_rpms = self.deleted_rpms()
-    if len(deleted_rpms):
-      self.rpmdb.remove(deleted_rpms)
-    self.rpmdb.update_installed_packages()
-    for rpm in self.added_rpms():
-      self.rpmdb.queue_install(rpm)
-    for rpm in self.modified_rpms():
-      self.rpmdb.queue_install(rpm)
-    self.rpmdb.install()
+    self.rpmdb.run(test=False, reinstall=reinstall)
 
     with open(os.path.join(self.path, self.deploy_file), 'w') as f:
       f.write(self.latest_version())
@@ -747,6 +747,7 @@ def main():
   parser = optparse.OptionParser()
   parser.add_option('-q', '--quiet', action='store_true', help='Silence output')
   parser.add_option('-f', '--force', action='store_true', help='Force apply changes')
+  parser.add_option('--no-reinstall-broken', action='store_false', help="Don't reinstall locally modified rpms", dest='reinstall', default=True)
   parser.add_option('-D', '--deploy', action='store_true', help='Deploy changes')
   parser.add_option('-d', '--repo-path', help='Repo path')
   parser.add_option('-b', '--backup', action='store_true', help='backup files')
@@ -797,7 +798,7 @@ def main():
         sys.exit('Deployment skipped due to holdups...')
 
     if options.deploy:
-      gitman.deploy(backup=options.backup, force=options.force)
+      gitman.deploy(backup=options.backup, force=options.force, reinstall=options.reinstall)
   else:
     print 'Showing deployment info for:', gitman.config['host_file']
     gitman.dump_added()
