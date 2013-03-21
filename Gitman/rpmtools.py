@@ -127,7 +127,7 @@ class RPM_DB:
       cmd = ('-y %s %s shell %s' % (test_cmd, protected_cmd, yum_script.name)).split()
       if test:
         cmd.insert(0, '-q')
-      cmd.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'shell.py'))
+      cmd[0:0] = ["python", os.path.join(os.path.dirname(os.path.realpath(__file__)), 'shell.py')]
 
       proc = subprocess.Popen(cmd)
       output = proc.communicate()[0]
