@@ -373,8 +373,7 @@ class GitMan:
       if not args['isdir']:
         args['hash'] = self.repo.git.hash_object(file, with_keep_cwd=True) 
       file = file[len(args['root']):]
-      if not file in files:
-        files[file] = args
+      files[file] = args
 
     for file in exclude_files:
       file = file[len(args['root']):]
@@ -503,9 +502,8 @@ class GitMan:
         holdup('PERMISSIONS changed in repo: %s from %s -> %s' %
                (file, orig_acl, new_acl))
       if file_acl != orig_acl:
-        if file_acl != new_acl:
-          verbose('PERMISSIONS changing: %s from %s -> %s' %
-                  (file, file_acl, new_acl))
+        if file_acl == new_acl:
+          verbose('PERMISSIONS already changed locally: %s' % (file))
         else:
           holdup('PERMISSIONS were locally modified: %s from %s -> %s' %
                  (file, orig_acl, file_acl))
