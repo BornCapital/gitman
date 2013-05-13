@@ -205,7 +205,7 @@ class ConcatCrontabs:
 class GitMan:
   def __init__(self, path, origin=None, branch='master', info=None, deploy_file='.git/gitman_deploy'):
     self.path = path
-    self.deploy_file = deploy_file + '.' + branch
+    self.deploy_file = deploy_file + '.' + branch.replace('/', '^')
 
     if info:
       self.host = info
@@ -687,6 +687,8 @@ class GitMan:
     self.repo.git.fetch()
     if branch == 'master':
       branch = self.repo.active_branch.tracking_branch()
+    else:
+      self.repo.git.checkout(branch)
     self.switch_to(branch)
 
   def deployed_version(self):
