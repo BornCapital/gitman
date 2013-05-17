@@ -155,36 +155,43 @@ class RPM_DB:
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     output = proc.communicate()[0]
     rc = proc.wait()
+    verify_successful = True
 
     if rc != 0:
-      if holdup:
-        reasons_map = {
-          'S' : 'File Size differs',
-          'M' : 'Mode differs (includes permissions and file type)',
-          '5' : 'MD5 sum differs',
-          'D' : 'Device major/minor number mismatch',
-          'L' : 'ReadLink(2) path mismatch',
-          'U' : 'User ownership differs',
-          'G' : 'Group ownership differs',
-          'T' : 'Mtime differs',
-          'P' : 'Capabilities differ',
-        }
+      reasons_map = {
+        'S' : 'File Size differs',
+        'M' : 'Mode differs (includes permissions and file type)',
+        '5' : 'MD5 sum differs',
+        'D' : 'Device major/minor number mismatch',
+        'L' : 'ReadLink(2) path mismatch',
+        'U' : 'User ownership differs',
+        'G' : 'Group ownership differs',
+        'T' : 'Mtime differs',
+        'P' : 'Capabilities differ',
+      }
 
-        reasons = list()
+      reasons = list()
 
-        for line in output.split('\n'):
-          if len(line) > 0:
+      for line in output.split('\n'):
+        if len(line) > 0:
+          fields = line.split()
+          if len(fields) > 2:
+            flags, opt, file = fields
+          else:
             flags, file = line.split()
-            for flag in flags:
-              if flag in reasons_map:
-                reasons.append((reasons_map[flag], file))
+            opt = None
+          if opt == 'c': # config file:
+            continue
+          verify_failed = True
+          for flag in flags:
+            if flag in reasons_map:
+              reasons.append((reasons_map[flag], file))
 
+      if not verify_successful:
         if msg:
           holdup(msg)
         for reason, file in reasons:
           holdup('\t%s: %s' % (file, reason))
 
-      return False
-
-    return True
+    return verify_successful
 
