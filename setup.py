@@ -29,7 +29,7 @@ if not tests_failed:
   bindir = os.path.join(sys.prefix, 'bin')
 
   setup(name='gitman',
-        version='0.9',
+        version='0.9.1',
         description='Gitman',
         packages=['Gitman'],
         py_modules=['ansi',],
