@@ -13,5 +13,6 @@ fi
 
 rm -rf dist
 export PYTHONPATH=`pwd`:$PYTHONPATH
+python tests/acl_ut.py
 ./setup.py clean bdist_rpm --release=${release}
 

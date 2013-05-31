@@ -11,29 +11,16 @@ setup_dir = os.path.dirname(sys.argv[0])
 if setup_dir:
   os.chdir(setup_dir)
 
-def run_test(mod):
-  if os.system('python tests/%s.py' % mod):
-    raise RuntimeError('Test Failed: ' + mod)
+bindir = os.path.join(sys.prefix, 'bin')
+sharedir = os.path.join(sys.prefix, 'share', 'gitman')
 
-tests = ['acl_ut']
+with open('VERSION') as f:
+    version = f.readline().rstrip()
 
-tests_failed = False
-for test in tests:
-  try:
-    run_test(test)
-  except Exception as e:
-    tests_failed = True
-print '\n*******************************\n\n'
-
-if not tests_failed:
-  bindir = os.path.join(sys.prefix, 'bin')
-
-  setup(name='gitman',
-        version='0.9.1',
-        description='Gitman',
-        packages=['Gitman'],
-        py_modules=['ansi',],
-        data_files=[(bindir, ['gitman'])])
-else:
-  sys.exit('Tests failed!')
+setup(name='gitman',
+    version=version,
+    description='Gitman',
+    packages=['Gitman'],
+    py_modules=['ansi',],
+    data_files=[(bindir, ['gitman']), (sharedir, ['COPYING'])])
 
