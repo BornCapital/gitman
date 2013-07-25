@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import ansi
 import difftools
 import fs
 import rpmtools
@@ -740,7 +741,6 @@ class GitMan:
 
 
 def main():
-  import ansi
   import optparse
   import posix
 
