@@ -203,12 +203,14 @@ class ConcatCrontabs:
     
 
 class GitMan:
-  def __init__(self, path, origin=None, branch='master', info=None, deploy_file='.git/gitman_deploy'):
+  def __init__(self, path, origin=None, branch='master', info=None, assume_host=None, deploy_file='.git/gitman_deploy'):
     self.path = path
     self.deploy_file = deploy_file + '.' + branch.replace('/', '^')
 
     if info:
       self.host = info
+    elif assume_host:
+      self.host = assume_host
     else:
       self.host = socket.gethostbyaddr(socket.gethostname())[0]
 
@@ -757,6 +759,7 @@ def main():
   parser.add_option('--branch', default='master', help='Default: %default')
   parser.add_option('--diffs', action='store_true', help='Show diffs')
   parser.add_option('--info', metavar='MACHINE', help='Dump deployment info for a machine')
+  parser.add_option('--assume-host', metavar='HOSTNAME', help='Assume the given hostname')
 
   (options, args) = parser.parse_args()
 
@@ -782,7 +785,12 @@ def main():
     if options.quiet or options.deploy or options.backup or options.diffs:
       parser.error('Cannot use -q/-D/-b/--diffs with --info')
   verbose = not options.quiet and not options.info
-  gitman = GitMan(os.path.abspath(options.repo_path), options.origin, options.branch, info=options.info)
+  gitman = GitMan(
+    os.path.abspath(options.repo_path),
+    options.origin,
+    options.branch,
+    assume_host=options.assume_host,
+    info=options.info)
   if verbose:
     ansi.writeout('Deployed version: %s' % gitman.deployed_version())
     ansi.writeout('Newest version: %s' % gitman.latest_version())
