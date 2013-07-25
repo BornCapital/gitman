@@ -1,0 +1,15 @@
+Source: gitman
+Maintainer: Greg Mitchell
+Section: utilities
+Priority: optional
+Build-Depends: python (>= 2.6.6-3), debhelper (>= 7)
+Standards-Version: 3.9.1
+X-Python-Version: >= 2.6
+
+Package: gitman
+Architecture: all
+Homepage: http://github.com/BornCapital/gitman
+Depends: ${misc:Depends}, ${python:Depends}, python-git, python-pylibacl
+Description: A tool for managing config file deployments backed by git
+  Gitman is used to manage config file deployments back by git repos.
+
