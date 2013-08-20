@@ -5,7 +5,15 @@ import subprocess
 import tempfile
 import sys
 
-RPM_RE = re.compile(r'^(?P<name>.+)\-(?P<version>[\d\.]+)\-(?P<release>.*?)(\.rpm)?$')
+RPM_RE = re.compile(r'^(?P<name>.+)\-(?P<version>[^-]+)\-(?P<release>[^\.]+?).*?(\.rpm)?$')
+
+
+def try_int(x):
+  try:
+    return int(x)
+  except ValueError:
+    return x
+
 
 class Package(object):
   __slots__ = 'name version release url'.split()
@@ -33,8 +41,8 @@ class Package(object):
     if self.version is None or rhs.version is None:
       return False
 
-    ver1 = [int(x) for x in self.version.split('.')]
-    ver2 = [int(x) for x in rhs.version.split('.')]
+    ver1 = [try_int(x) for x in self.version.split('.')]
+    ver2 = [try_int(x) for x in rhs.version.split('.')]
 
     while len(ver1) < len(ver2):
       ver1.append(0)
@@ -194,4 +202,20 @@ class RPM_DB:
           holdup('\t%s: %s' % (file, reason))
 
     return verify_successful
+
+
+if __name__ == '__main__':
+  import unittest
+
+  class RPMtoolsTestCase(unittest.TestCase):
+    def testPackage(self):
+      p = Package('jsoncpp-0.6.0rc2-3.x86_64.rpm')
+      self.assertEqual(p.name, 'jsoncpp')
+      self.assertEqual(p.version, '0.6.0rc2')
+      self.assertEqual(p.release, '3')
+
+      p2 = Package('jsoncpp-0.6.0rc1-3.x86_64.rpm')
+      self.assertTrue(p > p2)
+
+  unittest.main()
 
