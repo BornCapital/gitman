@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import sys
 
-RPM_RE = re.compile(r'^(?P<name>.+)\-(?P<version>[^-]+)\-(?P<release>[^\.]+?).*?(\.rpm)?$')
+RPM_RE = re.compile(r'^(?P<name>.+)\-(?P<version>[^-]+)\-(?P<release>[^\.]+).*?(\.rpm)?$')
 
 
 def try_int(x):
@@ -182,6 +182,10 @@ class RPM_DB:
 
       for line in output.split('\n'):
         if len(line) > 0:
+          if line.startswith('Unsatisfied dependencies'):
+            reasons.append((line, 'package'))
+            verify_successful = False
+            break
           fields = line.split()
           if len(fields) > 2:
             flags, opt, file = fields
@@ -190,7 +194,7 @@ class RPM_DB:
             opt = None
           if opt == 'c': # config file:
             continue
-          verify_failed = True
+          verify_successful = False
           for flag in flags:
             if flag in reasons_map:
               reasons.append((reasons_map[flag], file))
@@ -216,6 +220,16 @@ if __name__ == '__main__':
 
       p2 = Package('jsoncpp-0.6.0rc1-3.x86_64.rpm')
       self.assertTrue(p > p2)
+
+      p3 = Package('python-borncapital-0.9-22.noarch')
+      self.assertEqual(p3.name, 'python-borncapital')
+      self.assertEqual(p3.version, '0.9')
+      self.assertEqual(p3.release, '22')
+
+      p4 = Package('bc-www-utils-1.0-2.noarch.rpm')
+      self.assertEqual(p4.name, 'bc-www-utils')
+      self.assertEqual(p4.version, '1.0')
+      self.assertEqual(p4.release, '2')
 
   unittest.main()
 
