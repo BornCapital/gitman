@@ -356,13 +356,14 @@ class GitMan:
             pattern = pattern.strip()
             if pattern[0] == '/':
               pattern = pattern[1:]
-            files = ant_glob(start_dir=root, incl=pattern.strip(), dir=True)
-            for file in files:
-              if os.path.isdir(file):
-                fileacl = diracl
-              else:
-                fileacl = acl
-              include_files.append([file, dict(acl=fileacl, root=root, dirattr=dir_attr)])
+            if os.path.isdir(root):
+              files = ant_glob(start_dir=root, incl=pattern.strip(), dir=True)
+              for file in files:
+                if os.path.isdir(file):
+                  fileacl = diracl
+                else:
+                  fileacl = acl
+                include_files.append([file, dict(acl=fileacl, root=root, dirattr=dir_attr)])
           elif cmd == 'exclude':
             exclude_files.extend(ant_glob(start_dir=root, incl=rest.strip(), dir=True))
           else:
