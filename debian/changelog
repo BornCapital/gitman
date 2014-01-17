@@ -1,3 +1,9 @@
+gitman (0.9.4) unstable; urgency=low
+
+  * 0.9.4
+
+ -- Greg Mitchell <gmitchell@borncapital.com>  Fri, 17 Jan 2014 14:34:42 -0400
+
 gitman (0.9.1) unstable; urgency=low
 
   * Initial release. 
