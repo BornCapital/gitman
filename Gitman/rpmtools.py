@@ -187,11 +187,15 @@ class RPM_DB:
             verify_successful = False
             break
           fields = line.split()
-          if len(fields) > 2:
+          if len(fields) == 3:
             flags, opt, file = fields
-          else:
+          elif len(fields) == 2:
             flags, file = line.split()
             opt = None
+          else:
+            reasons.append(('Cannot parse rpm -V: %s' % line, 'package'))
+            verify_successful = False
+            break
           if opt == 'c': # config file:
             continue
           verify_successful = False
