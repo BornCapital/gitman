@@ -5,8 +5,7 @@ import subprocess
 import tempfile
 import sys
 
-RPM_RE = re.compile(r'^(?P<name>.+)\-(?P<version>[^-]+)\-(?P<release>[^\.]+).*?(\.rpm)?$')
-
+RPM_RE = re.compile(r'^(?P<name>.+)(?=.*[0-9])\-(?P<version>[^-]+)\-(?P<release>[^\.]+).*?(\.rpm)?$')
 
 def try_int(x):
   try:
@@ -187,11 +186,15 @@ class RPM_DB:
             verify_successful = False
             break
           fields = line.split()
-          if len(fields) > 2:
+          if len(fields) == 3:
             flags, opt, file = fields
-          else:
+          elif len(fields) == 2:
             flags, file = line.split()
             opt = None
+          else:
+            reasons.append(('Cannot parse rpm -V: %s' % line, 'package'))
+            verify_successful = False
+            break
           if opt == 'c': # config file:
             continue
           verify_successful = False
