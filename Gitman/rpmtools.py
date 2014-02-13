@@ -5,8 +5,7 @@ import subprocess
 import tempfile
 import sys
 
-RPM_RE = re.compile(r'^(?P<name>.+)\-(?P<version>[^-]+)\-(?P<release>[^\.]+).*?(\.rpm)?$')
-
+RPM_RE = re.compile(r'^(?P<name>.+)(?=.*[0-9])\-(?P<version>[^-]+)\-(?P<release>[^\.]+).*?(\.rpm)?$')
 
 def try_int(x):
   try:
