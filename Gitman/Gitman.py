@@ -320,6 +320,12 @@ class GitMan:
     self.callbacks = GitManCallbacks(self.path, self.config)
     self.modified = list()
 
+  def hash_file(self, path):
+    "git.hash_object() doesn't support empty files, so we need to check this"
+    if os.path.exists(path) and os.path.getsize(path) == 0:
+      return 0
+    return self.repo.git.hash_object(path, with_keep_cwd=True) 
+
   def load_files(self, config):
     host_file = os.path.join(self.path, config['host_dir'], config['host_file'])
     if not os.path.exists(host_file):
@@ -442,7 +448,7 @@ class GitMan:
       args['isdir'] = os.path.isdir(file)
       args['realfile'] = file
       if not args['isdir']:
-        args['hash'] = self.repo.git.hash_object(file, with_keep_cwd=True) 
+        args['hash'] = self.hash_file(file)
       file = file[len(args['root']):]
       files[file] = args
 
@@ -452,7 +458,7 @@ class GitMan:
 
     for usercrontabs in crontabs.values():
       crontab = ConcatCrontabs(usercrontabs['files'])
-      hash = self.repo.git.hash_object(crontab.name, with_keep_cwd=True)
+      hash = self.hash_file(crontab.name)
       usercrontabs['hash'] = hash
       usercrontabs['crontab'] = crontab
 
@@ -469,7 +475,7 @@ class GitMan:
         raise RuntimeError('Failed to run: %s' % cmd)
       if status == 1:
         return 0
-      return self.repo.git.hash_object(tmp)
+      return self.hash_file(tmp)
     finally:
       os.unlink(tmp)
 
@@ -541,7 +547,7 @@ class GitMan:
         verbose('DELETED and already removed: %s' % file)
         self.callbacks.already_deleted_file(file)
       else:
-        if not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
+        if not orig_args['isdir'] and self.hash_file(file) != orig_args['hash']:
           holdup('DELETED but has local differences: %s' % file)
           if show_diffs:
             verbose(difftools.get_diff_deployed_to_fs(
@@ -553,7 +559,7 @@ class GitMan:
     #Find files that will be added, assuming they don't already exist
     for file, sys_file, new_args in self.added_files():
       if os.path.exists(file):
-        if new_args['isdir'] or self.repo.git.hash_object(file) == new_args['hash']:
+        if new_args['isdir'] or self.hash_file(file) == new_args['hash']:
           file_acl = ACL.from_file(file)
           git_acl = new_args['acl']
           if file_acl != git_acl:
@@ -592,8 +598,8 @@ class GitMan:
       if not os.path.exists(file):
         holdup('LOCAL file missing:: %s' % file)
         modified = True
-      elif not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
-        if not orig_args['isdir'] and self.repo.git.hash_object(file) != new_args['hash']:
+      elif not orig_args['isdir'] and self.hash_file(file) != orig_args['hash']:
+        if not orig_args['isdir'] and self.hash_file(file) != new_args['hash']:
           holdup('LOCAL file has changes: %s' % file)
           modified = True
           if show_diffs:
