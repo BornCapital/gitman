@@ -533,12 +533,17 @@ class GitMan:
   def show_deployment(self, show_diffs = False):
     verbose_info = []
     holdups = []
-    can_deploy = True
+    failures = []
+
     def verbose(str):
       verbose_info.append(str)
 
     def holdup(str):
       holdups.append(str)
+      verbose_info.append(str)
+
+    def fail(str):
+      failures.append(str)
       verbose_info.append(str)
 
     #Find files that will be deleted, only if they are unchanged
@@ -674,7 +679,7 @@ class GitMan:
       elif rpm == self.rpmdb[rpm.name]:
         verbose('ADDED rpm already deployed: %s' % rpm)
       elif rpm < self.rpmdb[rpm.name]:
-        raise RuntimeError('RPM downgrades not supported: %s' % rpm)
+        fail('RPM downgrades not supported: %s' % rpm)
       else:
         holdup('ADDED rpm already deployed with wrong version: %s (%s deployed)' %
                (rpm, self.rpmdb[rpm.name]))
@@ -692,7 +697,7 @@ class GitMan:
         else:
           holdup('UPGRADED rpm missing locally: %s' % self.orig_rpms[rpm.name])
       elif rpm < self.rpmdb[rpm.name]:
-        raise RuntimeError('RPM downgrades not supported: %s' % rpm)
+        fail('RPM downgrades not supported: %s' % rpm)
       elif rpm == self.rpmdb[rpm.name]: # already deployed
         if not self.rpmdb.verify(
             rpm, holdup, msg='INSTALLED rpm has local differences: %s' % rpm):
@@ -711,7 +716,7 @@ class GitMan:
 
     self.rpmdb.run(test=True, holdup=holdup)
 
-    return holdups, verbose_info
+    return holdups, verbose_info, failures
 
   def deploy(self, force, backup, reinstall=True):
     self.callbacks.run_pre_script()
@@ -893,9 +898,11 @@ def main():
     ansi.writeout('  %d revisions between deployed and latest' %
                   gitman.undeployed_revisions())
   if options.info is None:
-    holdups, verbose_info = gitman.show_deployment(options.diffs)
+    holdups, verbose_info, failures = gitman.show_deployment(options.diffs, options.holdup_diffs)
     if verbose:
       ansi.writeout('\n'.join(verbose_info))
+    if failures:
+      ansi.writeout('${BRIGHT_RED}%s${RESET}' % '\n'.join(failures))
     if len(holdups) > 0 and not options.force:
       ansi.writeout('${BRIGHT_YELLOW}Force deployment needed:${RESET}')
       ansi.writeout('${BRIGHT_RED}%s${RESET}' % '\n'.join(holdups))
@@ -903,6 +910,8 @@ def main():
         sys.exit('Deployment skipped due to holdups...')
 
     if options.deploy:
+      if failures:
+        sys.exit('Deployment skipped due to failures...')
       gitman.deploy(backup=options.backup, force=options.force, reinstall=options.reinstall)
   else:
     print 'Showing deployment info for:', gitman.config['host_file']
