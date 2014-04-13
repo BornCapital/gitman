@@ -73,8 +73,14 @@ class ACL(object):
   @classmethod
   def __from_file(klass, file):
     stat_info = os.stat(file)
-    user = pwd.getpwuid(stat_info.st_uid)[0]
-    group = grp.getgrgid(stat_info.st_gid)[0]
+    try:
+      user = pwd.getpwuid(stat_info.st_uid)[0]
+    except KeyError:
+      user = stat_info.st_uid
+    try:
+      group = grp.getgrgid(stat_info.st_gid)[0]
+    except KeyError:
+      group = stat_info.st_gid
     return klass(user, group, klass.mode_from_stat(file, stat_info))
 
   def __init__(self, user, group):
