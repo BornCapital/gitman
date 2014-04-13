@@ -315,7 +315,7 @@ class GitMan:
       self.config['host_file'] = info
 
     self.new_files, self.new_crontabs, self.new_rpms = self.load_files(new_config)
-    self.rpmdb = rpmtools.RPM_DB()
+    self.rpmdb = rpmtools.RPM_DB(rpm_ignore_mtime=(self.config.get('rpm_ignore_mtime', 'False').lower()=='true'))
 
     self.callbacks = GitManCallbacks(self.path, self.config)
     self.modified = list()
