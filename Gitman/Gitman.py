@@ -201,7 +201,71 @@ class ConcatCrontabs:
         self.tmpfilename = None
       except:
         pass
-    
+
+
+class GitManCallbacks:
+  def __init__(self, path, config):
+    if 'pre-script' in config:
+      self.pre_script = os.path.join(path, config['pre-script'])
+      if not os.path.exists(self.pre_script):
+        raise RuntimeError('Missing pre-script: %s' % self.pre_script)
+
+    if 'post-script' in config:
+      self.post_script = os.path.join(path, config['post-script'])
+      if not os.path.exists(self.post_script):
+        raise RuntimeError('Missing post-script: %s' % self.post_script)
+
+    if 'deploy-script' in config:
+      self.deploy_script = os.path.join(path, config['deploy-script'])
+      if not os.path.exists(self.deploy_script):
+        raise RuntimeError('Missing deploy-script: %s' % self.deploy_script)
+
+    self.callbacks = list()
+
+  def run_pre_script(self):
+    if hasattr(self, 'pre_script'):
+      ansi.writeout('Executing pre-script: %s' % self.pre_script)
+      subprocess.check_call(self.pre_script)
+
+  def run_post_script(self):
+    if hasattr(self, 'pre_script'):
+      ansi.writeout('Executing post-script: %s' % self.post_script)
+      subprocess.check_call(self.post_script)
+
+  def run_deployment_callbacks(self):
+    if hasattr(self, 'deploy_script') and self.callbacks:
+      ansi.writeout('Executing deploy-script: %s' % self.deploy_script)
+      proc = subprocess.Popen(self.deploy_script, stdin=subprocess.PIPE)
+      for callback in self.callbacks:
+        action = '%s %s' % callback
+        ansi.writeout('->%s' % action)
+        print >> proc.stdin, action
+      proc.stdin.close()
+      n = proc.wait()
+      if 0 != n:
+        raise subprocess.CalledProcessError(n, self.deploy_script)
+
+  def _run_deploy_script(self, path, command):
+    self.callbacks.append((command, path))
+
+  def add_file(self, path):
+    self._run_deploy_script(path, 'add')
+
+  def already_added_file(self, path):
+    self._run_deploy_script(path, 'already-added')
+
+  def modify_file(self, path):
+    self._run_deploy_script(path, 'modify')
+
+  def already_modified_file(self, path):
+    self._run_deploy_script(path, 'already-modifed')
+
+  def delete_file(self, path):
+    self._run_deploy_script(path, 'delete')
+
+  def already_deleted_file(self, path):
+    self._run_deploy_script(path, 'already-deleted')
+
 
 class GitMan:
   def __init__(self, path, origin=None, branch='master', info=None, assume_host=None, deploy_file='.git/gitman_deploy'):
@@ -252,6 +316,9 @@ class GitMan:
 
     self.new_files, self.new_crontabs, self.new_rpms = self.load_files(new_config)
     self.rpmdb = rpmtools.RPM_DB()
+
+    self.callbacks = GitManCallbacks(self.path, self.config)
+    self.modified = list()
 
   def load_files(self, config):
     host_file = os.path.join(self.path, config['host_dir'], config['host_file'])
@@ -420,12 +487,15 @@ class GitMan:
     files.sort()
     return files
 
-  def modified_files(self):
+  def common_files(self):
     files = []
     for file in set(self.new_files) & set(self.original_files):
       files.append([file, self.new_files[file]['realfile'], self.original_files[file], self.new_files[file]])
     files.sort()
     return files
+
+  def modified_files(self):
+    return self.modified
 
   def deleted_crontabs(self):
     crontabs = []
@@ -469,6 +539,7 @@ class GitMan:
     for file, sys_file, orig_args in self.deleted_files():
       if not os.path.exists(file):
         verbose('DELETED and already removed: %s' % file)
+        self.callbacks.already_deleted_file(file)
       else:
         if not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
           holdup('DELETED but has local differences: %s' % file)
@@ -477,6 +548,7 @@ class GitMan:
               sys_file, file, self.repo, self.deployed_version()))
         else:
           verbose('DELETED: %s' % file)
+        self.callbacks.delete_file(file)
 
     #Find files that will be added, assuming they don't already exist
     for file, sys_file, new_args in self.added_files():
@@ -489,41 +561,53 @@ class GitMan:
                    (file, file_acl, git_acl))
           else:
             verbose('ADDED and exists locally: %s' % file)
+          self.callbacks.already_added_file(file)
         else:
           holdup('ADDED and exists with differences: %s' % file)
           if show_diffs:
             verbose(difftools.get_diff_fs_to_newest(
               file, sys_file, self.repo, self.latest_version()))
+          self.callbacks.modify_file(file) # modify since what's on local disk is changing, not being added
       else:
         verbose('ADDED: %s' % file)
+        self.callbacks.add_file(file)
 
     #Find files that will be update
-    for file, sys_file, orig_args, new_args in self.modified_files():
+    for file, sys_file, orig_args, new_args in self.common_files():
+      modified = False
       new_acl = new_args['acl']
       orig_acl = orig_args['acl']
       file_acl = ACL.from_file(file)
       if new_acl != orig_acl:
         holdup('PERMISSIONS changed in repo: %s from %s -> %s' %
                (file, orig_acl, new_acl))
-      if file_acl != orig_acl:
+        modified = True
+      if os.path.exists(file) and file_acl != orig_acl:
         if file_acl == new_acl:
           verbose('PERMISSIONS already changed locally: %s' % (file))
         else:
           holdup('PERMISSIONS were locally modified: %s from %s -> %s' %
                  (file, orig_acl, file_acl))
+          modified = True
       if not os.path.exists(file):
-        holdup('MODIFIED but missing locally: %s' % file)
+        holdup('LOCAL file missing:: %s' % file)
+        modified = True
       elif not orig_args['isdir'] and self.repo.git.hash_object(file) != orig_args['hash']:
         if not orig_args['isdir'] and self.repo.git.hash_object(file) != new_args['hash']:
-          holdup('MODIFIED but has local differences: %s' % file)
+          holdup('LOCAL file has changes: %s' % file)
+          modified = True
           if show_diffs:
             verbose(difftools.get_diff_deployed_to_fs(
               sys_file, file, self.repo, self.deployed_version()))
       if not orig_args['isdir'] and new_args['hash'] != orig_args['hash']:
         verbose('MODIFIED: %s' % file)
+        modified = True
         if show_diffs:
           verbose(difftools.get_diff_deployed_to_newest(
             sys_file, self.repo, self.deployed_version(), self.latest_version()))
+      if modified:
+        self.modified.append((file, sys_file, orig_args, new_args))
+        self.callbacks.modify_file(file)
 
     #Deleted crontabs
     for crontab in self.deleted_crontabs():
@@ -624,6 +708,8 @@ class GitMan:
     return holdups, verbose_info
 
   def deploy(self, force, backup, reinstall=True):
+    self.callbacks.run_pre_script()
+
     #Delete files
     for file, sys_file, orig_args in reversed(self.deleted_files()):
       if os.path.exists(file):
@@ -652,7 +738,7 @@ class GitMan:
       new_args['acl'].applyto(file)
 
     #Update files
-    for file, sys_file, orig_args, new_args in self.modified_files():
+    for file, sys_file, orig_args, new_args in self.common_files():
       if not new_args['isdir']:
         fs.copy(sys_file, file, backup)
       new_args['acl'].applyto(file)
@@ -671,6 +757,9 @@ class GitMan:
         raise RuntimeError('Failed to run cmd: %s' % cmd)
 
     self.rpmdb.run(test=False, reinstall=reinstall)
+
+    self.callbacks.run_deployment_callbacks()
+    self.callbacks.run_post_script()
 
     with open(os.path.join(self.path, self.deploy_file), 'w') as f:
       f.write(self.latest_version())
