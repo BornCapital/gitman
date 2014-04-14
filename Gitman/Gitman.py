@@ -530,7 +530,7 @@ class GitMan:
   def modified_rpms(self):
     return [self.new_rpms[rpm] for rpm in set(self.new_rpms) & set(self.orig_rpms)]
 
-  def show_deployment(self, show_diffs = False):
+  def show_deployment(self, show_diffs, show_holdup_diffs):
     verbose_info = []
     holdups = []
     failures = []
@@ -554,7 +554,7 @@ class GitMan:
       else:
         if not orig_args['isdir'] and self.hash_file(file) != orig_args['hash']:
           holdup('DELETED but has local differences: %s' % file)
-          if show_diffs:
+          if show_diffs or show_holdup_diffs:
             verbose(difftools.get_diff_deployed_to_fs(
               sys_file, file, self.repo, self.deployed_version()))
         else:
@@ -578,6 +578,9 @@ class GitMan:
           if show_diffs:
             verbose(difftools.get_diff_fs_to_newest(
               file, sys_file, self.repo, self.latest_version()))
+          if show_holdup_diffs:
+            verbose(difftools.get_diff_deployed_to_fs(
+              sys_file, file, self.repo, self.deployed_version()))
           self.callbacks.modify_file(file) # modify since what's on local disk is changing, not being added
       else:
         verbose('ADDED: %s' % file)
@@ -607,7 +610,7 @@ class GitMan:
         if not orig_args['isdir'] and self.hash_file(file) != new_args['hash']:
           holdup('LOCAL file has changes: %s' % file)
           modified = True
-          if show_diffs:
+          if show_diffs or show_holdup_diffs:
             verbose(difftools.get_diff_deployed_to_fs(
               sys_file, file, self.repo, self.deployed_version()))
       if not orig_args['isdir'] and new_args['hash'] != orig_args['hash']:
@@ -861,6 +864,7 @@ def main():
   parser.add_option('--diffs', action='store_true', help='Show diffs')
   parser.add_option('--info', metavar='MACHINE', help='Dump deployment info for a machine')
   parser.add_option('--assume-host', metavar='HOSTNAME', help='Assume the given hostname')
+  parser.add_option('--holdup-diffs', action='store_true', help='Show holdup diffs')
 
   (options, args) = parser.parse_args()
 
@@ -883,8 +887,10 @@ def main():
   if options.force and not options.deploy:
     parser.error('Cannot force without deployment')
   if options.info:
-    if options.quiet or options.deploy or options.backup or options.diffs:
-      parser.error('Cannot use -q/-D/-b/--diffs with --info')
+    if options.quiet or options.deploy or options.backup or options.diffs or options.holdup_diffs:
+      parser.error('Cannot use -q/-D/-b/--diffs/--holdup-diffs with --info')
+  if options.diffs and options.holdup_diffs:
+    parser.error('--diffs and --holdup-diffs should not be used together')
   verbose = not options.quiet and not options.info
   gitman = GitMan(
     os.path.abspath(options.repo_path),
