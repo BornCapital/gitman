@@ -70,7 +70,8 @@ class Package(object):
 
 
 class RPM_DB:
-  def __init__(self):
+  def __init__(self, **options):
+    self.__options = options
     self.__install_set = set()
     self.__reinstall_set = set()
     self.__remove_set = set()
@@ -177,6 +178,9 @@ class RPM_DB:
         'P' : 'Capabilities differ',
       }
 
+      if self.__options.get('rpm_ignore_mtime', False):
+        reasons_map.pop('T')
+
       reasons = list()
 
       for line in output.split('\n'):
@@ -197,9 +201,9 @@ class RPM_DB:
             break
           if opt == 'c': # config file:
             continue
-          verify_successful = False
           for flag in flags:
             if flag in reasons_map:
+              verify_successful = False
               reasons.append((reasons_map[flag], file))
 
       if not verify_successful:
