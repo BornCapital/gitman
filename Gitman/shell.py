@@ -12,7 +12,7 @@ def ins_wrapper(name):
   def do(*args, **kwargs):
     global exit_code
     try:
-      old(*args, **kwargs)
+      return old(*args, **kwargs)
     except:
       exit_code = 1
       raise
