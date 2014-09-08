@@ -19,6 +19,17 @@ class Package(object):
 
   def __init__(self, url=None, **kwargs):
     if url:
+      rpmdb = kwargs.get('rpmdb', None)
+      if rpmdb:
+        kwargs.pop('rpmdb')
+        p = rpmdb.get_package(url)
+        if p:
+          self.name = p.name
+          self.version = p.version
+          self.release = p.release
+          self.url = url
+          return
+           
       fn = os.path.basename(url)
       match = RPM_RE.match(fn)
 
@@ -85,13 +96,25 @@ class RPM_DB:
       name = pkg['name']
       version = pkg['version']
       release = pkg['release']
-      self.__pkgs[name] = Package(name=name, version=version, release=release, url=None)
+      arch = pkg['arch']
+      pkg = Package(name=name, version=version, release=release, url=None)
+      n = name
+      self.__pkgs[n] = pkg
+      n += "-" + version
+      self.__pkgs[n] = pkg
+      n += "-" + release
+      self.__pkgs[n] = pkg
+      n += "." + arch
+      self.__pkgs[n] = pkg
 
   def __contains__(self, pkg):
     return pkg.name in self.__pkgs
 
   def __getitem__(self, pkg_name):
     return self.__pkgs[pkg_name]
+
+  def get_package(self, pkg):
+    return self.__pkgs.get(pkg, None)
 
   def check_version(self, pkg):
     if pkg in self:
@@ -189,6 +212,10 @@ class RPM_DB:
             reasons.append((line, 'package'))
             verify_successful = False
             break
+          if line.startswith('missing'):
+            reasons.append((line, 'missing'))
+            verify_successful = False
+            continue
           fields = line.split()
           if len(fields) == 3:
             flags, opt, file = fields
