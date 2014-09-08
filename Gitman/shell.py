@@ -6,15 +6,19 @@ import shell
 import yummain
 import yum
 exit_code = 0
-old_install = cli.YumBaseCli.install
-def install(*args, **kwargs):
-  global exit_code
-  try:
-    old_install(*args, **kwargs)
-  except yum.Errors.InstallError:
-    exit_code = 1
-    raise
-cli.YumBaseCli.install = install
+
+def ins_wrapper(name):
+  old = getattr(cli.YumBaseCli, name)
+  def do(*args, **kwargs):
+    global exit_code
+    try:
+      old(*args, **kwargs)
+    except:
+      exit_code = 1
+      raise
+  setattr(cli.YumBaseCli, name, do)
+ins_wrapper('install')
+ins_wrapper('reinstall')
 
 old_exit = sys.exit
 def exit(code=0):
