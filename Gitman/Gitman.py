@@ -271,6 +271,7 @@ class GitMan:
   def __init__(self, path, origin=None, branch='master', info=None, assume_host=None, deploy_file='.git/gitman_deploy'):
     self.path = path
     self.deploy_file = deploy_file + '.' + branch.replace('/', '^')
+    self.rpmdb = rpmtools.RPM_DB()
 
     if info:
       self.host = info
@@ -416,7 +417,7 @@ class GitMan:
             crontabs[user].setdefault('files', list()).append(crontab_path)
             crontabs[user]['user'] = user
           elif cmd == 'rpm':
-            pkg = rpmtools.Package(rest.strip())
+            pkg = rpmtools.Package(rest.strip(), rpmdb=self.rpmdb)
             rpms[pkg.name] = pkg
           elif cmd == 'include':
             a = rest.split(' ')
