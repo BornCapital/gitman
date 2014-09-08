@@ -212,6 +212,10 @@ class RPM_DB:
             reasons.append((line, 'package'))
             verify_successful = False
             break
+          if line.startswith('missing'):
+            reasons.append((line, 'missing'))
+            verify_successful = False
+            continue
           fields = line.split()
           if len(fields) == 3:
             flags, opt, file = fields
