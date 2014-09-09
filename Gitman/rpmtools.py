@@ -104,8 +104,9 @@ class RPM_DB:
       self.__pkgs[n] = pkg
       n += "-" + release
       self.__pkgs[n] = pkg
-      n += "." + arch
-      self.__pkgs[n] = pkg
+      if arch:
+        n += "." + arch
+        self.__pkgs[n] = pkg
 
   def __contains__(self, pkg):
     return pkg.name in self.__pkgs
