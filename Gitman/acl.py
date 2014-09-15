@@ -61,7 +61,7 @@ class ACL(object):
       if has_xacl and posix_acl.has_extended(file):
         return ExtendedACL.__from_file(file)
     except ExtendedACLError:
-      raise RuntimeError('Failed to read Extended ACL for file "%s".' % file)
+      pass
     return SimpleACL.__from_file(file)
 
   @staticmethod
