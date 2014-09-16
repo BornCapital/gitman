@@ -439,7 +439,10 @@ class GitMan:
                   fileacl = acl
                 include_files.append([file, dict(acl=fileacl, root=root, dirattr=dir_attr)])
           elif cmd == 'exclude':
-            exclude_files.extend(ant_glob(start_dir=root, incl=rest.strip(), dir=True))
+            pattern = rest.strip()
+            if pattern[0] == '/':
+              pattern = pattern[1:]
+            exclude_files.extend(ant_glob(start_dir=root, incl=pattern, dir=True))
           else:
             raise RuntimeError('Unknown line in config file: %s' % line)
     parse_file(host_file)
