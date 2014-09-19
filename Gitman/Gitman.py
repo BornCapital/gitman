@@ -325,6 +325,8 @@ class GitMan:
     "git.hash_object() doesn't support empty files, so we need to check this"
     if os.path.exists(path) and os.path.getsize(path) == 0:
       return 0
+    if os.path.islink(path) and not os.path.exists(os.readlink(path)):
+      return 0
     return self.repo.git.hash_object(path, with_keep_cwd=True) 
 
   def load_files(self, config):
