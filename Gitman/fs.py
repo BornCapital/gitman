@@ -1,3 +1,4 @@
+import os
 import os.path
 import shutil
 
@@ -11,11 +12,15 @@ def rmf(f):
 
 def copy_or_remove(src, dst):
   'Copy src to dst, or remove dst on failure'
-  try:
-    shutil.copy(src, dst)
-  except:
-    rmf(dst)
-    raise
+  if os.path.islink(src):
+    l = os.readlink(src)
+    os.symlink(l, dst)
+  else:
+    try:
+      shutil.copy(src, dst)
+    except:
+      rmf(dst)
+      raise
 
 
 def move_or_remove(src, dst):

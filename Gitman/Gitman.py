@@ -755,13 +755,15 @@ class GitMan:
           os.mkdir(file)
       else:
         fs.copy(sys_file, file, backup)
-      new_args['acl'].applyto(file)
+      if not os.path.islink(file):
+        new_args['acl'].applyto(file)
 
     #Update files
     for file, sys_file, orig_args, new_args in self.common_files():
       if not new_args['isdir']:
         fs.copy(sys_file, file, backup)
-      new_args['acl'].applyto(file)
+      if not os.path.islink(file):
+        new_args['acl'].applyto(file)
 
     for crontab in self.deleted_crontabs():
       cmd = 'crontab -r -u %s' % crontab['user']
