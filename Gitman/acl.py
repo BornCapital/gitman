@@ -57,6 +57,8 @@ class ACL(object):
   def from_file(file):
     if not os.path.exists(file):
       return None
+    elif os.path.islink(file):
+      return SymlinkACL.__from_file(file)
     try:
       if has_xacl and posix_acl.has_extended(file):
         return ExtendedACL.__from_file(file)
@@ -187,6 +189,9 @@ class SimpleACL(ACL):
     if self.__mode and self.__mode != SimpleACL.mode_from_stat(file, stat_info):
       os.chmod(file, self.__mode)
 
+_ACL_TYPES = list()
+_ACL_TYPES.append(SimpleACL)
+
 
 if has_xacl:
   class ExtendedACL(ACL):
@@ -262,4 +267,31 @@ if has_xacl:
         except ExtendedACLError:
           raise RuntimeError('Failed to write Extended ACL for file "%s".' % file)
 
+  _ACL_TYPES.append(ExtendedACL)
+
+
+class SymlinkACL(ACL):
+  @staticmethod
+  def mode_from_stat(file, stat_info):
+    return 0
+
+  def __init__(self, user, group, mode):
+    super(SymlinkACL, self).__init__(user, group)
+  
+  def __eq__(self, rhs):
+    return (type(rhs) in _ACL_TYPES)
+
+  def __ne__(self, rhs):
+    return (type(rhs) not in _ACL_TYPES)
+
+  @property
+  def modestr(self):
+    return '0777'
+
+  @property
+  def extended(self):
+    return False
+
+  def applyto(self, file):
+    return
 
