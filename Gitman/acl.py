@@ -136,16 +136,15 @@ class ACL(object):
     else:
       need_group = False
 
+    uid = -1
+    gid = -1
+
     if need_user:
-      group = self.group
-      gid = -1
-      if group:
-        gid = grp.getgrnam(self.group).gr_gid
       uid = pwd.getpwnam(self.user).pw_uid
       os.chown(file, uid, gid)
-    elif need_group:
+    if need_group:
       gid = grp.getgrnam(self.group).gr_gid
-      os.chgrp(file, gid)
+      os.chown(file, uid, gid)
     return stat_info
 
 
