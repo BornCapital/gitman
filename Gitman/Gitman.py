@@ -769,7 +769,15 @@ class GitMan:
 
     #Update files
     for file, sys_file, orig_args, new_args in self.common_files():
-      if not new_args['isdir']:
+      dir = os.path.dirname(file)
+      if not os.path.isdir(dir):
+        os.makedirs(dir)
+        if new_args['dirattr']:
+          new_args['dirattr'].applyto(dir)
+      if new_args['isdir']:
+        if not os.path.exists(file):
+          os.mkdir(file)
+      else:
         fs.copy(sys_file, file, backup)
       if not os.path.islink(file):
         new_args['acl'].applyto(file)
