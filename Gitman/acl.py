@@ -57,6 +57,8 @@ class ACL(object):
   def from_file(file):
     if not os.path.exists(file):
       return None
+    elif os.path.islink(file):
+      return SymlinkACL.__from_file(file)
     try:
       if has_xacl and posix_acl.has_extended(file):
         return ExtendedACL.__from_file(file)
@@ -70,8 +72,8 @@ class ACL(object):
       return ExtendedACL(user, group, xattr, mode).simplify()
     return SimpleACL(user, group, mode)
 
-  @classmethod
-  def __from_file(klass, file):
+  @staticmethod
+  def __get_ownership(file):
     stat_info = os.stat(file)
     try:
       user = pwd.getpwuid(stat_info.st_uid)[0]
@@ -81,6 +83,11 @@ class ACL(object):
       group = grp.getgrgid(stat_info.st_gid)[0]
     except KeyError:
       group = stat_info.st_gid
+    return user, group, stat_info
+
+  @classmethod
+  def __from_file(klass, file):
+    user, group, stat_info = ACL.__get_ownership(file)
     return klass(user, group, klass.mode_from_stat(file, stat_info))
 
   def __init__(self, user, group):
@@ -117,16 +124,29 @@ class ACL(object):
     return self.__group
 
   def applyto(self, file):
-    if self.user:
+    user, group, stat_info = ACL.__get_ownership(file)
+
+    if self.user and self.user != user:
+      need_user = True
+    else:
+      need_user = False
+
+    if self.group and self.group != group:
+      need_group = True
+    else:
+      need_group = False
+
+    if need_user:
       group = self.group
       gid = -1
       if group:
         gid = grp.getgrnam(self.group).gr_gid
       uid = pwd.getpwnam(self.user).pw_uid
       os.chown(file, uid, gid)
-    elif self.group:
+    elif need_group:
       gid = grp.getgrnam(self.group).gr_gid
       os.chgrp(file, gid)
+    return stat_info
 
 
 class SimpleACL(ACL):
@@ -165,9 +185,12 @@ class SimpleACL(ACL):
     return False
 
   def applyto(self, file):
-    super(SimpleACL, self).applyto(file)
-    if self.__mode:
+    stat_info = super(SimpleACL, self).applyto(file)
+    if self.__mode and self.__mode != SimpleACL.mode_from_stat(file, stat_info):
       os.chmod(file, self.__mode)
+
+_ACL_TYPES = list()
+_ACL_TYPES.append(SimpleACL)
 
 
 if has_xacl:
@@ -244,4 +267,31 @@ if has_xacl:
         except ExtendedACLError:
           raise RuntimeError('Failed to write Extended ACL for file "%s".' % file)
 
+  _ACL_TYPES.append(ExtendedACL)
+
+
+class SymlinkACL(ACL):
+  @staticmethod
+  def mode_from_stat(file, stat_info):
+    return 0
+
+  def __init__(self, user, group, mode):
+    super(SymlinkACL, self).__init__(user, group)
+  
+  def __eq__(self, rhs):
+    return (type(rhs) in _ACL_TYPES)
+
+  def __ne__(self, rhs):
+    return (type(rhs) not in _ACL_TYPES)
+
+  @property
+  def modestr(self):
+    return '0777'
+
+  @property
+  def extended(self):
+    return False
+
+  def applyto(self, file):
+    return
 

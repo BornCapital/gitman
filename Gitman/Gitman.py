@@ -166,6 +166,12 @@ def ant_glob(*k, **kw):
   #  return ' '.join([x.path_from(self) for x in ret])
   return ret
 
+
+def exists(path):
+  'Like os.path.exists(), but also returns true for dangling symlink'
+  return os.path.islink(path) or os.path.exists(path)
+
+
 def parse_config(line, config):
   machine = re.compile('%machine%')
   short_machine = re.compile('%short_machine%')
@@ -323,9 +329,9 @@ class GitMan:
 
   def hash_file(self, path):
     "git.hash_object() doesn't support empty files, so we need to check this"
+    if os.path.islink(path):
+      return os.readlink(path)
     if os.path.exists(path) and os.path.getsize(path) == 0:
-      return 0
-    if os.path.islink(path) and not os.path.exists(os.readlink(path)):
       return 0
     return self.repo.git.hash_object(path, with_keep_cwd=True) 
 
@@ -554,7 +560,7 @@ class GitMan:
 
     #Find files that will be deleted, only if they are unchanged
     for file, sys_file, orig_args in self.deleted_files():
-      if not os.path.exists(file):
+      if not exists(file):
         verbose('DELETED and already removed: %s' % file)
         self.callbacks.already_deleted_file(file)
       else:
@@ -569,7 +575,7 @@ class GitMan:
 
     #Find files that will be added, assuming they don't already exist
     for file, sys_file, new_args in self.added_files():
-      if os.path.exists(file):
+      if exists(file):
         if new_args['isdir'] or self.hash_file(file) == new_args['hash']:
           file_acl = ACL.from_file(file)
           git_acl = new_args['acl']
@@ -597,19 +603,22 @@ class GitMan:
       modified = False
       new_acl = new_args['acl']
       orig_acl = orig_args['acl']
-      file_acl = ACL.from_file(file)
+      if os.path.exists(file):
+        file_acl = ACL.from_file(file)
+      else:
+        file_acl = None
       if new_acl != orig_acl:
         holdup('PERMISSIONS changed in repo: %s from %s -> %s' %
                (file, orig_acl, new_acl))
         modified = True
-      if os.path.exists(file) and file_acl != orig_acl:
+      if file_acl != orig_acl:
         if file_acl == new_acl:
           verbose('PERMISSIONS already changed locally: %s' % (file))
         else:
           holdup('PERMISSIONS were locally modified: %s from %s -> %s' %
                  (file, orig_acl, file_acl))
           modified = True
-      if not os.path.exists(file):
+      if not exists(file):
         holdup('LOCAL file missing:: %s' % file)
         modified = True
       elif not orig_args['isdir'] and self.hash_file(file) != orig_args['hash']:
@@ -732,7 +741,7 @@ class GitMan:
 
     #Delete files
     for file, sys_file, orig_args in reversed(self.deleted_files()):
-      if os.path.exists(file):
+      if exists(file):
         if backup:
           os.rename(file, '%s.gitman' % file)
         elif orig_args['isdir']:
@@ -760,7 +769,15 @@ class GitMan:
 
     #Update files
     for file, sys_file, orig_args, new_args in self.common_files():
-      if not new_args['isdir']:
+      dir = os.path.dirname(file)
+      if not os.path.isdir(dir):
+        os.makedirs(dir)
+        if new_args['dirattr']:
+          new_args['dirattr'].applyto(dir)
+      if new_args['isdir']:
+        if not os.path.exists(file):
+          os.mkdir(file)
+      else:
         fs.copy(sys_file, file, backup)
       if not os.path.islink(file):
         new_args['acl'].applyto(file)
