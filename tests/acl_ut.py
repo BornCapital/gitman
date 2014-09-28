@@ -55,7 +55,7 @@ if has_xacl:
   with create_tempfile() as f:
     username = getpass.getuser()
     try:
-      ACL.from_components(xattr='u::r,g::r,o::r,u:%s:rw' % username).applyto(f)
+      ACL.from_components(xattr='u::r,g::r,o::r,u:%s:rw' % username).applyto(f.name)
     except ExtendedACLError:
       has_fs_xacl = False
     else:
