@@ -9,7 +9,11 @@ def git_ls_tree(repo, path, rev='HEAD'):
 
 
 def git_catfile(repo, path, rev='HEAD'):
-  (mode, objtype, obj, fl) = git_ls_tree(repo, path, rev)
+  x = git_ls_tree(repo, path, rev)
+  if len(x) == 1 and x[0] == '':
+    # non-existant file at the given rev
+    return ''
+  (mode, objtype, obj, fl) = x
   return repo.git.cat_file('-p', obj)
   
 
