@@ -603,10 +603,7 @@ class GitMan:
       modified = False
       new_acl = new_args['acl']
       orig_acl = orig_args['acl']
-      if os.path.exists(file):
-        file_acl = ACL.from_file(file)
-      else:
-        file_acl = None
+      file_acl = ACL.from_file(file)
       if new_acl != orig_acl:
         holdup('PERMISSIONS changed in repo: %s from %s -> %s' %
                (file, orig_acl, new_acl))
@@ -619,7 +616,7 @@ class GitMan:
                  (file, orig_acl, file_acl))
           modified = True
       if not exists(file):
-        holdup('LOCAL file missing:: %s' % file)
+        holdup('LOCAL file missing: %s' % file)
         modified = True
       elif not orig_args['isdir'] and self.hash_file(file) != orig_args['hash']:
         if not orig_args['isdir'] and self.hash_file(file) != new_args['hash']:

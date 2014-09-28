@@ -58,7 +58,7 @@ class ACL(object):
     if not os.path.exists(file):
       return None
     elif os.path.islink(file):
-      return SymlinkACL.__from_file(file)
+      return SymlinkACL()
     try:
       if has_xacl and posix_acl.has_extended(file):
         return ExtendedACL.__from_file(file)
@@ -270,12 +270,8 @@ if has_xacl:
 
 
 class SymlinkACL(ACL):
-  @staticmethod
-  def mode_from_stat(file, stat_info):
-    return 0
-
-  def __init__(self, user, group, mode):
-    super(SymlinkACL, self).__init__(user, group)
+  def __init__(self):
+    pass
   
   def __eq__(self, rhs):
     return (type(rhs) in _ACL_TYPES)
